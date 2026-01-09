@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, minimum-scale=1.0">
+    <title>Juego 3D - Final Polish</title>
+    <style>
+        body { 
+            margin: 0; overflow: hidden; background-color: #000; 
+            font-family: sans-serif; touch-action: none; user-select: none; -webkit-user-select: none;
+        }
+        
+        #fps-display {
+            position: absolute; top: 10px; right: 10px;
+            background: rgba(0, 0, 0, 0.5); color: #00ff00; 
+            padding: 5px 10px; border-radius: 4px;
+            font-family: monospace; font-weight: bold; font-size: 14px;
+            pointer-events: none; z-index: 200;
+        }
+
+        #debug-ui {
+            position: absolute; top: 10px; left: 180px;
+            background: rgba(0, 0, 50, 0.8); color: cyan; 
+            padding: 10px; border-radius: 8px; border: 1px solid cyan;
+            font-family: monospace; font-size: 11px;
+            pointer-events: none; z-index: 200;
+            width: 200px;
+        }
+
+        #quest-message {
+            position: absolute; top: 20%; left: 50%; transform: translate(-50%, -50%);
+            color: cyan; font-family: 'Courier New', Courier, monospace;
+            font-size: 24px; font-weight: bold; text-shadow: 0 0 10px cyan;
+            text-align: center; display: none; pointer-events: none; z-index: 300;
+            background: rgba(0,0,0,0.4); padding: 20px; border: 1px solid cyan;
+        }
+
+        .cinematic-bar {
+            position: absolute; left: 0; width: 100%; height: 0;
+            background: black; z-index: 150; transition: height 0.5s;
+        }
+        #bar-top { top: 0; }
+        #bar-bottom { bottom: 0; }
+        body.cinematic-mode #bar-top, body.cinematic-mode #bar-bottom { height: 10%; }
+        body.cinematic-mode .ui-element { opacity: 0; pointer-events: none; }
+
+        .ui-element { transition: opacity 0.5s; }
+
+        #settings-ui {
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(0, 0, 0, 0.6); padding: 10px;
+            border-radius: 8px; color: white; font-size: 12px;
+            z-index: 200; backdrop-filter: blur(4px);
+            display: flex; flex-direction: column; gap: 5px;
+            width: 150px;
+        }
+        #settings-ui label { font-weight: bold; display: flex; justify-content: space-between; }
+        input[type=range] { width: 100%; cursor: pointer; }
+
+        #joystick-container {
+            position: absolute; bottom: 30px; left: 30px;
+            width: 120px; height: 120px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            z-index: 100; touch-action: none; cursor: pointer;
+        }
+        #joystick-thumb {
+            width: 50px; height: 50px;
+            background: rgba(255, 238, 177, 0.8);
+            border-radius: 50%;
+            position: absolute; transform: translate(0px, 0px); 
+            pointer-events: none; 
+        }
+
+        #actions-container {
+            position: absolute; bottom: 30px; right: 30px;
+            display: flex; flex-direction: column; gap: 15px; z-index: 100;
+        }
+        .action-btn {
+            width: 70px; height: 70px;
+            background: rgba(255, 255, 255, 0.15);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            color: white; font-size: 14px; font-weight: bold;
+            cursor: pointer; backdrop-filter: blur(4px); touch-action: none;
+        }
+        .action-btn:active { background: rgba(255, 238, 177, 0.5); transform: scale(0.95); }
+        #btn-shoot { background: rgba(255, 50, 50, 0.3); } 
+
+        @media (max-width: 800px) { #pc-instructions { display: none; } }
+        #pc-instructions {
+            position: absolute; bottom: 10px; width: 100%; text-align: center;
+            color: rgba(255, 255, 255, 0.3); font-size: 12px; pointer-events: none;
+        }
+        
+        #error-log {
+            position: absolute; top: 40px; left: 0; background: red; color: white; padding: 5px; font-size: 10px; display: none; z-index: 9999;
+        }
+    </style>
+</head>
+<body>
+    <div id="bar-top" class="cinematic-bar"></div>
+    <div id="bar-bottom" class="cinematic-bar"></div>
+
+    <div id="fps-display">FPS: 0</div>
+    
+    <div id="debug-ui">
+        <strong>CAMERA DEBUG</strong><br>
+        Pos X: <span id="dbg-x">0</span><br>
+        Pos Y: <span id="dbg-y">0</span><br>
+        Pos Z: <span id="dbg-z">0</span><br>
+        <hr style="border: 0; border-top: 1px solid cyan;">
+        Phi: <span id="dbg-phi">0</span><br>
+        Theta: <span id="dbg-theta">0</span><br>
+        Radius: <span id="dbg-rad">0</span>
+    </div>
+
+    <div id="quest-message">WORK AND BE PATIENT</div>
+    
+    <div id="settings-ui" class="ui-element">
+        <label>Densidad Hierba <span id="grass-val">2000</span></label>
+        <input type="range" id="grass-slider" min="0" max="4000" step="100" value="2000">
+    </div>
+
+    <div id="error-log"></div>
+    <div id="pc-instructions" class="ui-element">WASD: Mover | ESPACIO: Saltar</div>
+
+    <div id="joystick-container" class="ui-element"><div id="joystick-thumb"></div></div>
+
+    <div id="actions-container" class="ui-element">
+        <div class="action-btn" id="btn-jump">SALTAR</div>
+        <div class="action-btn" id="btn-shoot">DISPARAR</div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://esm.sh/three@0.168.0",
+                "three/addons/": "https://esm.sh/three@0.168.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        
+        window.addEventListener('error', function(e) {
+            const el = document.getElementById('error-log');
+            el.style.display = 'block';
+            el.innerHTML += "Error: " + e.message + "<br>";
+        });
+
+        const dbgX = document.getElementById('dbg-x');
+        const dbgY = document.getElementById('dbg-y');
+        const dbgZ = document.getElementById('dbg-z');
+        const dbgPhi = document.getElementById('dbg-phi');
+        const dbgTheta = document.getElementById('dbg-theta');
+        const dbgRad = document.getElementById('dbg-rad');
+
+        const _tempVec3_1 = new THREE.Vector3();
+        const _tempVec3_2 = new THREE.Vector3();
+        const _tempVec3_3 = new THREE.Vector3();
+        const _tempOrigin = new THREE.Vector3();
+        const _tempDir = new THREE.Vector3();
+        const _camIdeal = new THREE.Vector3();
+        const _camHead = new THREE.Vector3();
+        const _currentLookAt = new THREE.Vector3(); 
+        
+        const _cinematicStartPos = new THREE.Vector3();
+        const _cinematicStartLook = new THREE.Vector3();
+        
+        let _returnStartRadius = 0;
+        let _returnStartPhi = 0;
+        let _returnStartTheta = 0;
+        const _returnStartLook = new THREE.Vector3();
+
+        let isLookAtInitialized = false;
+
+        const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+        let mixer, sceneMixer; 
+        let playerContainer, rawCharacterMesh, bgMesh; 
+        let blobShadow;
+        const clock = new THREE.Clock();
+        let lastTime = performance.now();
+        let frames = 0;
+        let frameCount = 0; 
+        const fpsDisplay = document.getElementById('fps-display');
+        const messageEl = document.getElementById('quest-message');
+
+        const collisionMeshes = [];      
+        const grassEmitterMeshes = [];   
+        
+        let platformMesh = null; 
+        let parametricMesh = null;
+        let mapBoundingBox = new THREE.Box3(); 
+
+        let questState = 0; 
+        let isCinematic = false;
+        let isReturning = false; 
+        let cinematicStartTime = 0;
+        let returnStartTime = 0;
+        let orbsLaunched = false;
+        
+        const orbs = [];
+        let doorsCenter = new THREE.Vector3();
+        const doorActions = [];
+        let questOrbsCollected = 0;
+
+        let grassSource = { geometry: null, material: null, scale: new THREE.Vector3(1,1,1) };
+        let grassMaterialUniforms = { time: { value: 0 } }; 
+
+        const grassSlider = document.getElementById('grass-slider');
+        const grassValLabel = document.getElementById('grass-val');
+        const grassParams = { count: 2000 };
+
+        grassSlider.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            grassValLabel.innerText = val;
+            grassParams.count = val;
+            if(grassSource.geometry) generateInstancedGrass();
+        });
+
+        const orbSpeedMultiplier = 0.2;
+
+        const maxMoveSpeed = 7.5; 
+        
+        let currentSpeed = 0;
+        let moveDirection = new THREE.Vector3();
+        let isMoving = false;
+        let velocityY = 0;
+        const gravity = -50.0; 
+        const jumpStrength = 18.0; 
+        let isGrounded = false;
+        let landingCooldown = 0.0; 
+        const raycaster = new THREE.Raycaster();
+        const downVector = new THREE.Vector3(0, -1, 0);
+        const projectiles = [];
+        
+        const keyStates = { w: false, a: false, s: false, d: false };
+        const camSettings = { radius: 4.5, minRadius: 1.5, currentRadius: 4.5, theta: Math.PI, phi: 0.45 };
+        const cameraRaycaster = new THREE.Raycaster();
+        
+        let isDraggingCamera = false;
+        let previousMousePosition = { x: 0, y: 0 };
+        let joystickVector = { x: 0, y: 0 }; 
+        const joystickContainer = document.getElementById('joystick-container');
+        const joystickThumb = document.getElementById('joystick-thumb');
+        const maxRadius = joystickContainer.clientWidth / 2;
+        let isDraggingJoystick = false;
+
+        const handleJoystick = (e) => {
+            if(isCinematic || isReturning) return; 
+            if(e.type.startsWith('touch')) e.preventDefault();
+            if (!isDraggingJoystick) return;
+            const rect = joystickContainer.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            let clientX = (e.touches && e.touches.length) ? e.touches[0].clientX : e.clientX;
+            let clientY = (e.touches && e.touches.length) ? e.touches[0].clientY : e.clientY;
+            let x = clientX - centerX;
+            let y = clientY - centerY;
+            let distance = Math.sqrt(x*x + y*y);
+            if (distance > maxRadius) { x = (x / distance) * maxRadius; y = (y / distance) * maxRadius; }
+            joystickThumb.style.transform = `translate(${x}px, ${y}px)`;
+            joystickVector.x = x / maxRadius; joystickVector.y = y / maxRadius; 
+        };
+        const resetJoystick = () => { isDraggingJoystick = false; joystickVector = { x: 0, y: 0 }; joystickThumb.style.transform = `translate(0px, 0px)`; };
+        joystickContainer.addEventListener('mousedown', (e) => { isDraggingJoystick = true; handleJoystick(e); });
+        window.addEventListener('mousemove', (e) => { if(isDraggingJoystick) handleJoystick(e); });
+        window.addEventListener('mouseup', resetJoystick);
+        joystickContainer.addEventListener('touchstart', (e) => { isDraggingJoystick = true; handleJoystick(e); });
+        joystickContainer.addEventListener('touchmove', handleJoystick);
+        joystickContainer.addEventListener('touchend', resetJoystick);
+
+        document.addEventListener('pointerdown', (e) => { if (e.target.closest('.ui-element') || e.target.closest('#settings-ui')) return; isDraggingCamera = true; previousMousePosition = { x: e.clientX, y: e.clientY }; });
+        document.addEventListener('pointermove', (e) => { if (!isDraggingCamera) return; const deltaX = e.clientX - previousMousePosition.x; const deltaY = e.clientY - previousMousePosition.y; camSettings.theta -= deltaX * 0.008; camSettings.phi -= deltaY * 0.008; camSettings.phi = Math.max(0.1, Math.min(Math.PI / 2 - 0.1, camSettings.phi)); previousMousePosition = { x: e.clientX, y: e.clientY }; });
+        document.addEventListener('pointerup', () => isDraggingCamera = false);
+        document.addEventListener('pointercancel', () => isDraggingCamera = false);
+        document.addEventListener('keydown', (e) => { if(isCinematic || isReturning) return; if(e.code==='KeyW') keyStates.w = true; if(e.code==='KeyS') keyStates.s = true; if(e.code==='KeyA') keyStates.a = true; if(e.code==='KeyD') keyStates.d = true; if(e.code==='Space') jump(); if(e.code==='KeyP') shoot(); });
+        document.addEventListener('keyup', (e) => { if(e.code==='KeyW') keyStates.w = false; if(e.code==='KeyS') keyStates.s = false; if(e.code==='KeyA') keyStates.a = false; if(e.code==='KeyD') keyStates.d = false; });
+        const jumpBtn = document.getElementById('btn-jump'); const shootBtn = document.getElementById('btn-shoot');
+        const triggerAction = (action) => (e) => { e.preventDefault(); action(); };
+        jumpBtn.addEventListener('touchstart', triggerAction(jump)); jumpBtn.addEventListener('mousedown', triggerAction(jump));
+        shootBtn.addEventListener('touchstart', triggerAction(shoot)); shootBtn.addEventListener('mousedown', triggerAction(shoot));
+
+        const scene = new THREE.Scene();
+        const fogColor = 0xeecfa1; const fogDensity = 0.022;
+        scene.fog = new THREE.FogExp2(fogColor, fogDensity);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000); 
+        const renderer = new THREE.WebGLRenderer({ antialias: !isMobile, powerPreference: "high-performance" });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.0 : 1.5)); 
+        renderer.toneMapping = THREE.ACESFilmicToneMapping; 
+        renderer.toneMappingExposure = 0.5; 
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
+        document.body.appendChild(renderer.domElement);
+
+        const textureLoader = new THREE.TextureLoader();
+        
+        const bgTexture = textureLoader.load('./bg.webp', (texture) => { texture.colorSpace = THREE.SRGBColorSpace; });
+        const sphereGeo = new THREE.SphereGeometry(500, 32, 16); sphereGeo.scale(-1, 1, 1); 
+        const sphereMat = new THREE.MeshBasicMaterial({ map: bgTexture, side: THREE.DoubleSide, fog: false, depthWrite: false, toneMapped: false });
+        bgMesh = new THREE.Mesh(sphereGeo, sphereMat);
+        bgMesh.rotation.y = THREE.MathUtils.degToRad(123);
+        scene.add(bgMesh);
+
+        textureLoader.load('./bg_reflejosIBL.webp', (texture) => {
+            texture.mapping = THREE.EquirectangularReflectionMapping;
+            texture.colorSpace = THREE.SRGBColorSpace;
+            scene.environment = texture; 
+            scene.environmentIntensity = 2.0; 
+            if(scene.environmentRotation) scene.environmentRotation.y = THREE.MathUtils.degToRad(334);
+        });
+
+        const shadowMat = new THREE.MeshBasicMaterial({ map: createShadowTexture(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 });
+        blobShadow = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.8), shadowMat);
+        blobShadow.rotation.x = -Math.PI / 2; blobShadow.visible = false;
+        scene.add(blobShadow);
+        function createShadowTexture() { const canvas = document.createElement('canvas'); canvas.width = 64; canvas.height = 64; const ctx = canvas.getContext('2d'); const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32); gradient.addColorStop(0, 'rgba(0,0,0,0.6)'); gradient.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = gradient; ctx.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(canvas); }
+
+        const sunDistance = 50; 
+        let sunOffset = new THREE.Vector3(); 
+        let sunElevation = 13; 
+        let sunRotation = 270; 
+
+        function updateSun() {
+            const phi = THREE.MathUtils.degToRad(90 - sunElevation); 
+            const theta = THREE.MathUtils.degToRad(sunRotation);
+            sunOffset.set(
+                sunDistance * Math.sin(phi) * Math.sin(theta), 
+                sunDistance * Math.cos(phi), 
+                sunDistance * Math.sin(phi) * Math.cos(theta)
+            );
+        }
+        updateSun();
+
+        const sunLight = new THREE.DirectionalLight(0xffeeb1, 6.0);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.set(2048, 2048); 
+        sunLight.shadow.camera.left = -20; sunLight.shadow.camera.right = 20; sunLight.shadow.camera.top = 20; sunLight.shadow.camera.bottom = -20;
+        sunLight.shadow.camera.near = 0.5; sunLight.shadow.camera.far = 150;
+        sunLight.shadow.bias = -0.0005; 
+        sunLight.shadow.normalBias = 0.05; 
+        
+        scene.add(sunLight); scene.add(sunLight.target); 
+        scene.add(new THREE.HemisphereLight(0xffd580, 0x222233, 0.5));
+
+        class Orb {
+            constructor(id) {
+                this.id = id;
+                this.mesh = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.3, 16, 16),
+                    new THREE.MeshBasicMaterial({ color: 0x00ffff })
+                );
+                this.light = new THREE.PointLight(0x00ffff, 3, 5);
+                this.mesh.add(this.light);
+                scene.add(this.mesh);
+                this.state = 'hidden'; 
+                this.mesh.position.set(0, -9999, 0); 
+                this.velocity = new THREE.Vector3();
+                this.target = new THREE.Vector3();
+                this.collected = false;
+                this.mesh.visible = true; 
+                this.spawnTime = 0;
+                this.launchStartTime = 0;
+                this.launchVelocity = new THREE.Vector3();
+                this.oscillationOffset = Math.random() * 100;
+                this.startCinematicPos = new THREE.Vector3();
+                this.cinematicTargetPos = new THREE.Vector3();
+                this.divergeVec = new THREE.Vector3();
+            }
+
+            spawnStacked(basePos, playerPos) {
+                this.state = 'cinematic_stack';
+                this.collected = false;
+                this.mesh.material.color.setHex(0xff0000);
+                this.light.color.setHex(0xff0000);
+                
+                const toDoor = _tempVec3_1.subVectors(basePos, playerPos).normalize();
+                this.startCinematicPos.copy(playerPos).add(toDoor.multiplyScalar(2.0));
+                this.startCinematicPos.y += 1.5; 
+
+                this.mesh.position.copy(this.startCinematicPos);
+                this.mesh.position.y += (this.id * 0.6); 
+
+                const up = new THREE.Vector3(0, 1, 0);
+                const right = new THREE.Vector3().crossVectors(toDoor, up).normalize();
+
+                this.cinematicTargetPos.copy(this.mesh.position);
+                this.cinematicTargetPos.y += 2.0; 
+
+                if (this.id === 0) { 
+                    this.cinematicTargetPos.addScaledVector(right, -3.0);
+                } else if (this.id === 1) { 
+                    this.cinematicTargetPos.y += 2.0; 
+                } else if (this.id === 2) { 
+                    this.cinematicTargetPos.addScaledVector(right, 3.0);
+                }
+            }
+
+            launch(camPos) {
+                this.state = 'launching';
+                this.launchStartTime = clock.getElapsedTime();
+                
+                // Target: The Camera (scary effect)
+                const toCam = _tempVec3_1.subVectors(camPos, this.mesh.position).normalize();
+                
+                // Set diverge vector based on ID for later
+                // 0: Left, 1: Up, 2: Right relative to camera approach
+                const up = new THREE.Vector3(0, 1, 0);
+                const right = new THREE.Vector3().crossVectors(toCam, up).normalize();
+                const trueUp = new THREE.Vector3().crossVectors(right, toCam).normalize();
+
+                if (this.id === 0) this.divergeVec.copy(right).multiplyScalar(-1); // Left
+                if (this.id === 1) this.divergeVec.copy(trueUp); // Up
+                if (this.id === 2) this.divergeVec.copy(right); // Right
+
+                this.launchVelocity.copy(toCam).multiplyScalar(20.0); // Fast!
+            }
+
+            pickRandomTarget() {
+                const width = Math.max(20, mapBoundingBox.max.x - mapBoundingBox.min.x);
+                const depth = Math.max(20, mapBoundingBox.max.z - mapBoundingBox.min.z);
+                this.target.set(
+                    mapBoundingBox.min.x + Math.random() * width,
+                    1.5 + Math.random() * 1.5, 
+                    mapBoundingBox.min.z + Math.random() * depth
+                );
+            }
+
+            update(dt, playerPos, cinematicTime, camPos) {
+                if(this.state === 'hidden') return;
+                
+                const time = clock.getElapsedTime();
+
+                if(this.state === 'cinematic_stack') {
+                    if (cinematicTime > 1.0) {
+                        const t = Math.min(1.0, (cinematicTime - 1.0) / 1.5); 
+                        const ease = t * t * (3 - 2 * t); 
+                        _tempVec3_1.copy(this.startCinematicPos);
+                        _tempVec3_1.y += (this.id * 0.6);
+                        this.mesh.position.lerpVectors(_tempVec3_1, this.cinematicTargetPos, ease);
+                    } else {
+                         this.mesh.position.y = this.startCinematicPos.y + (this.id * 0.6) + Math.sin(time * 5) * 0.05;
+                    }
+                    return;
+                }
+
+                if (this.state === 'launching') {
+                    // Check distance to camera for divergence
+                    const distToCam = this.mesh.position.distanceTo(camPos);
+                    
+                    if (distToCam < 8.0) {
+                        // Apply diverge force strongly
+                        this.launchVelocity.addScaledVector(this.divergeVec, 80.0 * dt);
+                    }
+
+                    this.mesh.position.addScaledVector(this.launchVelocity, dt);
+                    if (this.mesh.position.y < 1.0) this.mesh.position.y = 1.0;
+
+                    if (time - this.launchStartTime > 1.5) {
+                        this.state = 'flying';
+                        this.mesh.material.color.setHex(0x00ffff);
+                        this.light.color.setHex(0x00ffff);
+                        this.spawnTime = time; 
+                        this.pickRandomTarget();
+                    }
+                    return;
+                }
+
+                if(this.state === 'flying') {
+                    const baseDir = _tempVec3_1.subVectors(this.target, this.mesh.position).normalize();
+                    const freq = 2.0; 
+                    const amp = 0.5;
+                    baseDir.x += Math.sin(time * freq + this.oscillationOffset) * amp;
+                    baseDir.z += Math.cos(time * freq + this.oscillationOffset) * amp;
+                    baseDir.y += Math.sin(time * 3.0 + this.oscillationOffset) * 0.2;
+                    baseDir.normalize();
+
+                    const speed = 8 * orbSpeedMultiplier; 
+                    this.mesh.position.addScaledVector(baseDir, speed * dt);
+
+                    if(this.mesh.position.distanceTo(this.target) < 2.0) {
+                        this.pickRandomTarget();
+                    }
+                    this.mesh.position.y = Math.max(1, Math.min(4.5, this.mesh.position.y));
+
+                    if(playerPos.distanceTo(this.mesh.position) < 1.5) {
+                        this.state = 'following';
+                        this.collected = true;
+                        questOrbsCollected++;
+                    }
+                }
+            }
+        }
+
+        function startQuestCinematic() {
+            if(isCinematic || isReturning) return; 
+            
+            questState = 1;
+            isCinematic = true;
+            isReturning = false;
+            orbsLaunched = false;
+            cinematicStartTime = clock.getElapsedTime();
+            
+            _cinematicStartPos.copy(camera.position);
+            _cinematicStartLook.copy(_currentLookAt);
+
+            document.body.classList.add('cinematic-mode');
+            
+            messageEl.style.display = 'block';
+            setTimeout(() => { messageEl.style.display = 'none'; }, 5000);
+
+            orbs.forEach(orb => orb.spawnStacked(doorsCenter, playerContainer.position));
+            
+            currentSpeed = 0;
+            keyStates.w = keyStates.a = keyStates.s = keyStates.d = false;
+            joystickVector = { x:0, y:0 };
+        }
+
+        function triggerReturnTransition() {
+            isCinematic = false;
+            isReturning = true;
+            returnStartTime = clock.getElapsedTime();
+
+            const offset = new THREE.Vector3().subVectors(camera.position, playerContainer.position);
+            const spherical = new THREE.Spherical().setFromVector3(offset);
+            
+            _returnStartRadius = spherical.radius;
+            _returnStartPhi = spherical.phi;
+            _returnStartTheta = spherical.theta;
+            _returnStartLook.copy(_currentLookAt);
+
+            const dirToStage = new THREE.Vector3().subVectors(playerContainer.position, doorsCenter).normalize();
+            dirToStage.y = 0; 
+            dirToStage.normalize();
+
+            const angle = Math.atan2(dirToStage.x, dirToStage.z);
+            playerContainer.quaternion.setFromAxisAngle(new THREE.Vector3(0,1,0), angle);
+
+            camSettings.theta = angle + Math.PI; 
+            camSettings.phi = 0.87;     
+            camSettings.radius = 4.17;  
+            camSettings.currentRadius = 4.17;
+            
+            // LAUNCH ORBS NOW if not already (should be handled in anim loop, but safe check)
+             if (!orbsLaunched) {
+                orbs.forEach(orb => orb.launch(camera.position));
+                orbsLaunched = true;
+            }
+        }
+
+        function endCinematic() {
+            isReturning = false;
+            document.body.classList.remove('cinematic-mode');
+        }
+
+        function resetQuest() {
+            console.log("QUEST RESET! REPLAYING CINEMATIC");
+            questOrbsCollected = 0;
+            doorActions.forEach(action => { action.stop(); action.reset(); });
+            startQuestCinematic();
+        }
+
+        function checkPlatform() {
+            if(!playerContainer || !platformMesh) return false;
+            _tempOrigin.copy(playerContainer.position);
+            _tempOrigin.y += 1.0;
+            raycaster.set(_tempOrigin, downVector);
+            raycaster.far = 2.0;
+            const hits = raycaster.intersectObject(platformMesh, false); 
+            return hits.length > 0;
+        }
+
+        function modifyMaterialForWind(material) {
+            const newMat = material.clone();
+            newMat.onBeforeCompile = (shader) => {
+                shader.uniforms.time = grassMaterialUniforms.time;
+                shader.vertexShader = `
+                    uniform float time;
+                    ${shader.vertexShader}
+                `;
+                shader.vertexShader = shader.vertexShader.replace(
+                    '#include <begin_vertex>',
+                    `
+                    #include <begin_vertex>
+                    float h = max(0.0, transformed.y); 
+                    float worldX = instanceMatrix[3][0] + transformed.x;
+                    float worldZ = instanceMatrix[3][2] + transformed.z;
+                    float windWave = sin(time * 3.0 - worldX * 0.5 + worldZ * 0.2);
+                    float bend = windWave * -0.25 * h * h; 
+                    vec3 localWindDir = normalize(vec3(instanceMatrix[0].x, instanceMatrix[1].x, instanceMatrix[2].x));
+                    transformed += localWindDir * bend;
+                    vec3 localCrossDir = normalize(vec3(instanceMatrix[0].z, instanceMatrix[1].z, instanceMatrix[2].z));
+                    transformed += localCrossDir * bend * 0.2;
+                    `
+                );
+            };
+            newMat.customProgramCacheKey = () => 'windyGrassInverted';
+            return newMat;
+        }
+
+        function generateInstancedGrass() {
+            if (parametricMesh) {
+                scene.remove(parametricMesh);
+                parametricMesh.dispose(); 
+                parametricMesh = null;
+            }
+
+            if (!grassSource.geometry || !grassSource.material) return;
+            if (grassParams.count === 0) return;
+
+            if (grassEmitterMeshes.length === 0) {
+                console.warn("No 'emisor_hierba' found. Skipping grass.");
+                return;
+            }
+
+            if (mapBoundingBox.isEmpty()) {
+                mapBoundingBox.min.set(-200, -50, -200);
+                mapBoundingBox.max.set(200, 50, 200);
+            }
+
+            const count = grassParams.count;
+            const windMaterial = modifyMaterialForWind(grassSource.material);
+            
+            parametricMesh = new THREE.InstancedMesh(grassSource.geometry, windMaterial, count);
+            parametricMesh.castShadow = true;
+            parametricMesh.receiveShadow = true;
+            parametricMesh.frustumCulled = false; 
+
+            const dummy = new THREE.Object3D();
+            const localRaycaster = new THREE.Raycaster();
+            localRaycaster.far = 100.0; 
+            const localDown = new THREE.Vector3(0, -1, 0);
+
+            let placed = 0;
+            let attempts = 0;
+            const maxAttempts = count * 5; 
+
+            const width = mapBoundingBox.max.x - mapBoundingBox.min.x;
+            const depth = mapBoundingBox.max.z - mapBoundingBox.min.z;
+            const heightMax = mapBoundingBox.max.y + 20; 
+
+            while(placed < count && attempts < maxAttempts) {
+                attempts++;
+                const x = mapBoundingBox.min.x + Math.random() * width;
+                const z = mapBoundingBox.min.z + Math.random() * depth;
+                _tempVec3_1.set(x, heightMax, z);
+                
+                localRaycaster.set(_tempVec3_1, localDown);
+                
+                const hits = localRaycaster.intersectObjects(grassEmitterMeshes, true);
+                
+                if (hits.length === 0) continue;
+                
+                const hit = hits[0];
+                if (hit.face && hit.face.normal.y < 0.6) continue;
+
+                dummy.position.set(x, hit.point.y, z);
+                dummy.rotation.set(0, Math.random() * Math.PI * 2, 0);
+                const randomScale = 0.6 + Math.random() * 0.7;
+                dummy.scale.set(
+                    grassSource.scale.x * randomScale, 
+                    grassSource.scale.y * randomScale * (0.8 + Math.random()*0.4), 
+                    grassSource.scale.z * randomScale
+                );
+                dummy.updateMatrix();
+                parametricMesh.setMatrixAt(placed, dummy.matrix);
+                placed++;
+            }
+            for(let i = placed; i < count; i++) {
+                dummy.position.set(0, -99999, 0);
+                dummy.updateMatrix();
+                parametricMesh.setMatrixAt(i, dummy.matrix);
+            }
+            parametricMesh.instanceMatrix.needsUpdate = true;
+            scene.add(parametricMesh);
+        }
+
+        const gltfLoader = new GLTFLoader();
+        
+        gltfLoader.load('./MN_SCENE_01.gltf', function (gltf) {
+            const masterModule = gltf.scene;
+            scene.add(masterModule);
+            
+            sceneMixer = new THREE.AnimationMixer(masterModule);
+            
+            mapBoundingBox.makeEmpty();
+            let doorsCount = 0;
+
+            masterModule.traverse((child) => {
+                if (child.isMesh) {
+                    const name = child.name.toLowerCase();
+                    
+                    if (name.includes("collision") || name.includes("colision")) {
+                        collisionMeshes.push(child);
+                        child.visible = false; 
+                        
+                        if (name.includes("plataforma")) {
+                            platformMesh = child;
+                        }
+                        child.geometry.computeBoundingBox();
+                        const box = child.geometry.boundingBox.clone();
+                        box.applyMatrix4(child.matrixWorld);
+                        mapBoundingBox.union(box);
+
+                    } else if (name.includes("emisor_hierba")) {
+                        grassEmitterMeshes.push(child);
+                        child.visible = false; 
+
+                    } else if (name.includes("hierba_b")) {
+                        if (!grassSource.geometry) {
+                            grassSource.geometry = child.geometry.clone(); 
+                            grassSource.material = child.material; 
+                            grassSource.scale.copy(child.scale); 
+                        }
+                        child.visible = false; 
+                    } else if (name.includes("puerta")) {
+                        doorsCenter.add(child.position);
+                        doorsCount++;
+                        child.castShadow = true; 
+                        child.receiveShadow = true;
+                    } else {
+                        child.castShadow = true; 
+                        child.receiveShadow = true;
+                    }
+                }
+            });
+
+            if(doorsCount > 0) doorsCenter.divideScalar(doorsCount);
+
+            gltf.animations.forEach((clip) => {
+                if(clip.name.toLowerCase().includes("puerta")) {
+                    const action = sceneMixer.clipAction(clip);
+                    action.loop = THREE.LoopOnce;
+                    action.clampWhenFinished = true;
+                    action.stop(); 
+                    doorActions.push(action);
+                }
+            });
+            
+            setTimeout(() => { if(grassSource.geometry) generateInstancedGrass(); }, 500); 
+            
+            for(let i=0; i<3; i++) {
+                orbs.push(new Orb(i));
+            }
+        });
+
+        gltfLoader.load('./GIRLrun.gltf', function (gltf) {
+            rawCharacterMesh = gltf.scene; rawCharacterMesh.scale.set(0.7, 0.7, 0.7); 
+            playerContainer = new THREE.Group(); scene.add(playerContainer); playerContainer.position.set(0, 3, 0); 
+            const box = new THREE.Box3().setFromObject(rawCharacterMesh); const center = box.getCenter(new THREE.Vector3());
+            rawCharacterMesh.position.set(-center.x, -box.min.y, -center.z); playerContainer.add(rawCharacterMesh);
+            rawCharacterMesh.traverse((child) => { if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; } });
+            if (gltf.animations && gltf.animations.length > 0) { mixer = new THREE.AnimationMixer(rawCharacterMesh); mixer.clipAction(gltf.animations[0]).play(); mixer.timeScale = 0; }
+        });
+
+        function jump() { if(isCinematic || isReturning) return; if (isGrounded) { velocityY = jumpStrength; isGrounded = false; } }
+        const projectileGeo = new THREE.BoxGeometry(0.1, 0.1, 0.8); const projectileMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+        function shoot() { if(isCinematic || isReturning) return; if (!playerContainer) return; const proj = new THREE.Mesh(projectileGeo, projectileMat); proj.position.copy(playerContainer.position).add(new THREE.Vector3(0,1.2,0)); const d = new THREE.Vector3(); playerContainer.getWorldDirection(d); proj.quaternion.copy(playerContainer.quaternion); proj.userData.velocity = d.multiplyScalar(20); proj.userData.lifeTime = 2.0; scene.add(proj); projectiles.push(proj); }
+        
+        function getPlayerHeight(pos, currentY) {
+            if(velocityY > 0) return -999;
+            _tempOrigin.copy(pos);
+            _tempOrigin.y += 1.5; 
+            raycaster.set(_tempOrigin, downVector);
+            raycaster.far = 10.0;
+            
+            const hits = raycaster.intersectObjects(collisionMeshes, true); 
+            if (hits.length > 0) {
+                return hits[0].point.y;
+            }
+            
+            if (isGrounded && currentY > -100) {
+                return currentY; 
+            }
+
+            return -999;
+        }
+
+        function checkWall(pos, dir) { 
+            _tempOrigin.copy(pos);
+            _tempOrigin.y += 0.1;
+            raycaster.set(_tempOrigin, dir); 
+            raycaster.far = 0.6; 
+            const hits = raycaster.intersectObjects(collisionMeshes, true);
+            if (hits.length > 0) {
+                if (hits[0].face.normal.y < 0.707) return true; 
+            }
+            return false; 
+        }
+
+        function updatePhysics(dt) {
+            if (!playerContainer) return;
+            
+            let inputX = 0;
+            let inputY = 0;
+
+            if (!isCinematic && !isReturning) {
+                if (landingCooldown > 0) { landingCooldown -= dt; }
+                inputX = joystickVector.x; 
+                inputY = joystickVector.y;
+                if (keyStates.w) inputY -= 1; if (keyStates.s) inputY += 1; if (keyStates.a) inputX -= 1; if (keyStates.d) inputX += 1;
+            } else {
+                currentSpeed = 0; 
+                isMoving = false;
+            }
+            
+            if (!isCinematic && !isReturning) {
+                moveDirection.set(inputX, 0, inputY); 
+                const len = moveDirection.length();
+                if (len > 0.1 && landingCooldown <= 0) { 
+                    isMoving = true; 
+                    currentSpeed = (len > 1 ? maxMoveSpeed : maxMoveSpeed * len); 
+                } else { 
+                    isMoving = false; 
+                    if (landingCooldown <= 0) currentSpeed = 0; 
+                }
+                
+                if (isMoving) {
+                    camera.getWorldDirection(_tempVec3_1); _tempVec3_1.y = 0; _tempVec3_1.normalize(); 
+                    _tempVec3_2.crossVectors(new THREE.Vector3(0, 1, 0), _tempVec3_1).normalize(); 
+                    _tempVec3_3.copy(_tempVec3_1).multiplyScalar(-moveDirection.z).addScaledVector(_tempVec3_2, -moveDirection.x).normalize();
+                    
+                    if (!checkWall(playerContainer.position, _tempVec3_3)) playerContainer.position.addScaledVector(_tempVec3_3, currentSpeed * dt);
+                    playerContainer.quaternion.slerp(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(_tempVec3_3.x, _tempVec3_3.z)), 10 * dt);
+                }
+            }
+            
+            velocityY += gravity * dt; 
+            const propY = playerContainer.position.y + velocityY * dt; 
+            
+            const floorY = getPlayerHeight(playerContainer.position, playerContainer.position.y);
+            
+            if (blobShadow) { blobShadow.visible = floorY > -500; if(blobShadow.visible) blobShadow.position.set(playerContainer.position.x, floorY + 0.05, playerContainer.position.z); }
+            
+            const distToFloor = playerContainer.position.y - floorY;
+
+            if (floorY > -900) {
+                if (isGrounded && distToFloor > 0 && distToFloor < 0.5 && velocityY <= 0) {
+                     playerContainer.position.y = THREE.MathUtils.lerp(playerContainer.position.y, floorY, 0.5);
+                     velocityY = 0; isGrounded = true;
+                } else if (propY <= floorY && velocityY <= 0) { 
+                    if (!isGrounded && !isCinematic && !isReturning) landingCooldown = 0.2; 
+                    playerContainer.position.y = THREE.MathUtils.lerp(playerContainer.position.y, floorY, 0.5);
+                    velocityY = 0; isGrounded = true; 
+                } else { 
+                    playerContainer.position.y = propY; isGrounded = false; 
+                }
+            } else {
+                playerContainer.position.y = propY; 
+                isGrounded = false;
+            }
+        }
+
+        function updateSmartCamera() {
+            if (!playerContainer) return;
+
+            // Debug UI Update
+            dbgX.innerText = camera.position.x.toFixed(2);
+            dbgY.innerText = camera.position.y.toFixed(2);
+            dbgZ.innerText = camera.position.z.toFixed(2);
+            dbgPhi.innerText = camSettings.phi.toFixed(2);
+            dbgTheta.innerText = camSettings.theta.toFixed(2);
+            dbgRad.innerText = camSettings.currentRadius.toFixed(2);
+
+            if (isReturning) {
+                const time = clock.getElapsedTime() - returnStartTime;
+                const duration = 2.0; 
+                
+                if (time < duration) {
+                    const t = time / duration;
+                    const smoothT = t * t * (3 - 2 * t);
+
+                    // --- TIGHTER ORBIT FIX (Anti-Clipping) ---
+                    // By making the radius interpolate faster (x3.0), the camera hugs the player
+                    // instantly before swinging around, avoiding walls.
+                    const radiusT = Math.min(1.0, smoothT * 3.0); 
+                    const curRadius = THREE.MathUtils.lerp(_returnStartRadius, camSettings.radius, radiusT);
+                    
+                    const curPhi = THREE.MathUtils.lerp(_returnStartPhi, camSettings.phi, smoothT);
+                    
+                    let startTheta = _returnStartTheta;
+                    let endTheta = camSettings.theta;
+                    if (endTheta - startTheta > Math.PI) endTheta -= Math.PI * 2;
+                    if (endTheta - startTheta < -Math.PI) endTheta += Math.PI * 2;
+                    const curTheta = THREE.MathUtils.lerp(startTheta, endTheta, smoothT);
+
+                    const y = curRadius * Math.cos(curPhi);
+                    const x = curRadius * Math.sin(curPhi) * Math.sin(curTheta);
+                    const z = curRadius * Math.sin(curPhi) * Math.cos(curTheta);
+
+                    _camIdeal.set(x, y, z).add(playerContainer.position);
+
+                    _camHead.copy(playerContainer.position).y += 1.5; 
+                    const lerpedLook = _tempVec3_1.lerpVectors(_returnStartLook, _camHead, smoothT);
+
+                    camera.position.copy(_camIdeal);
+                    camera.lookAt(lerpedLook);
+                } else {
+                    endCinematic();
+                }
+                return;
+            }
+
+            if (isCinematic) {
+                const time = clock.getElapsedTime() - cinematicStartTime;
+                
+                const toDoorDir = _tempVec3_1.subVectors(doorsCenter, playerContainer.position).normalize();
+                
+                const view1Pos = _tempVec3_2.copy(playerContainer.position).sub(toDoorDir.clone().multiplyScalar(3.0)).add(new THREE.Vector3(0, 1.5, 0));
+                
+                // Y + 6.0 to clear stairs
+                const view2Pos = _tempVec3_3.copy(playerContainer.position).sub(toDoorDir.clone().multiplyScalar(15.0)).add(new THREE.Vector3(0, 6.0, 0));
+
+                const lookAtDoor = _tempOrigin.copy(doorsCenter).add(new THREE.Vector3(0, 2, 0));
+                
+                if (time < 2.0) {
+                    const t = time / 2.0; 
+                    const smoothT = t * t * (3 - 2 * t);
+                    camera.position.lerpVectors(_cinematicStartPos, view1Pos, smoothT);
+                    camera.lookAt(_tempDir.lerpVectors(_cinematicStartLook, lookAtDoor, smoothT));
+                }
+                else if (time < 5.0) {
+                    const t = (time - 2.0) / 3.0;
+                    const smoothT = t * t * (3 - 2 * t);
+                    camera.position.lerpVectors(view1Pos, view2Pos, smoothT);
+                    camera.lookAt(lookAtDoor);
+                }
+                else {
+                    camera.position.copy(view2Pos);
+                    camera.lookAt(lookAtDoor);
+
+                    // --- DELAYED LAUNCH ---
+                    // Orbs wait for camera to arrive (at 5.0s) then LAUNCH at camera
+                    if (!orbsLaunched) {
+                        orbs.forEach(orb => orb.launch(camera.position));
+                        orbsLaunched = true;
+                    }
+
+                    if (time > 6.5) {
+                        triggerReturnTransition(); 
+                    }
+                }
+                return;
+            }
+
+            frameCount++;
+            if (frameCount % 3 === 0) {
+                _camIdeal.set(
+                    camSettings.radius * Math.sin(camSettings.phi) * Math.sin(camSettings.theta),
+                    camSettings.radius * Math.cos(camSettings.phi),
+                    camSettings.radius * Math.sin(camSettings.phi) * Math.cos(camSettings.theta)
+                ).add(playerContainer.position);
+
+                _camHead.copy(playerContainer.position).y += 1.5;
+                _tempDir.subVectors(_camIdeal, _camHead).normalize();
+
+                cameraRaycaster.set(_camHead, _tempDir); 
+                cameraRaycaster.far = camSettings.radius;
+                const hits = cameraRaycaster.intersectObjects(collisionMeshes, true);
+                const dist = hits.length > 0 ? Math.max(camSettings.minRadius, hits[0].distance - 0.2) : camSettings.radius;
+                
+                camSettings.currentRadius = dist; 
+            }
+
+            _camIdeal.set(
+                camSettings.currentRadius * Math.sin(camSettings.phi) * Math.sin(camSettings.theta),
+                camSettings.currentRadius * Math.cos(camSettings.phi),
+                camSettings.currentRadius * Math.sin(camSettings.phi) * Math.cos(camSettings.theta)
+            ).add(playerContainer.position);
+            
+            _camHead.copy(playerContainer.position).y += 1.5; 
+            
+            camera.position.lerp(_camIdeal, 0.25);
+
+            const targetLook = _tempVec3_3.copy(playerContainer.position);
+            targetLook.y += 1.5;
+
+            if (!isLookAtInitialized) {
+                _currentLookAt.copy(targetLook);
+                isLookAtInitialized = true;
+            }
+
+            _currentLookAt.lerp(targetLook, 0.25); 
+            camera.lookAt(_currentLookAt);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = performance.now(); frames++; if (time >= lastTime + 1000) { fpsDisplay.innerText = "FPS: " + frames; frames = 0; lastTime = time; }
+            let delta = Math.min(clock.getDelta(), 0.1); 
+            
+            grassMaterialUniforms.time.value = clock.getElapsedTime();
+
+            if(playerContainer) {
+                sunLight.target.position.set(0, 0, playerContainer.position.z);
+                sunLight.target.updateMatrixWorld();
+                sunLight.position.copy(sunLight.target.position).add(sunOffset);
+                if (bgMesh) bgMesh.position.copy(camera.position);
+
+                if (questState === 0) {
+                    if (checkPlatform()) {
+                        startQuestCinematic();
+                    }
+                } else if (questState === 1 || questState === 2) {
+                    let collectedCount = 0;
+                    let cinematicTime = 0;
+                    if(isCinematic) cinematicTime = clock.getElapsedTime() - cinematicStartTime;
+
+                    orbs.forEach((orb, index) => {
+                        orb.update(delta, playerContainer.position, cinematicTime, camera.position);
+                        if(orb.collected) {
+                            collectedCount++;
+                            const leaderPos = (index === 0) ? playerContainer.position : orbs[index-1].mesh.position;
+                            const target = leaderPos.clone();
+                            target.y += 0.5; 
+                            orb.mesh.position.lerp(target, 5 * delta);
+                        }
+                    });
+
+                    const onPlatform = checkPlatform();
+                    
+                    if (collectedCount === 3 && onPlatform) {
+                        const speed = currentSpeed;
+                        const verticalSpeed = Math.abs(velocityY);
+                        
+                        if (speed < 0.1 && verticalSpeed < 0.1) {
+                            questState = 2; 
+                            doorActions.forEach(action => {
+                                if(!action.isRunning()) action.play();
+                            });
+                            
+                            if(doorActions.length > 0 && doorActions[0].time >= doorActions[0].getClip().duration - 0.1) {
+                                questState = 3; 
+                            }
+
+                        } else {
+                            if (questState === 2) {
+                                resetQuest();
+                            }
+                        }
+                    } else if (questState === 2) {
+                        resetQuest();
+                    }
+                }
+            }
+
+            const fixedSteps = 3; 
+            for(let i=0; i<fixedSteps; i++) {
+                updatePhysics(delta/fixedSteps);
+            }
+
+            if (playerContainer) {
+                if (mixer) { mixer.timeScale = (isGrounded && isMoving && !isCinematic && !isReturning) ? currentSpeed / maxMoveSpeed : 0; mixer.update(delta); }
+                updateSmartCamera();
+            }
+            
+            if (sceneMixer) sceneMixer.update(delta); 
+
+            for (let i = projectiles.length - 1; i >= 0; i--) { 
+                const p = projectiles[i]; 
+                p.position.addScaledVector(p.userData.velocity, delta); 
+                p.userData.lifeTime -= delta; 
+                if (p.userData.lifeTime <= 0) { scene.remove(p); projectiles.splice(i, 1); }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => { 
+            camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); 
+            renderer.setSize(window.innerWidth, window.innerHeight); 
+        });
+        
+        animate();
+    </script>
+</body>
+</html>
