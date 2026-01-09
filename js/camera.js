@@ -26,7 +26,7 @@ let isDraggingCamera = false;
 let previousMousePosition = { x: 0, y: 0 };
 
 document.addEventListener('pointerdown', (e) => { 
-    if (e.target.closest('.ui-element') || e.target.closest('#settings-ui')) return; 
+    if (e.target.closest('.ui-element')) return; 
     isDraggingCamera = true; previousMousePosition = { x: e.clientX, y: e.clientY }; 
 });
 document.addEventListener('pointermove', (e) => { 
@@ -80,12 +80,11 @@ export function updateSmartCamera(camera, playerContainer, collisionMeshes, dt, 
 
     const time = performance.now() / 1000;
 
-    // --- MODO 1: CINEMÁTICA (La cámara se aleja y mira la puerta) ---
+    // --- MODO 1: CINEMÁTICA ---
     if (isCinematic) {
         const localTime = time - cinematicStartTime;
         const toDoorDir = new THREE.Vector3().subVectors(doorsCenter, playerContainer.position).normalize();
         
-        // Puntos clave del viaje de la cámara
         const view1Pos = playerContainer.position.clone().sub(toDoorDir.clone().multiplyScalar(3.0)).add(new THREE.Vector3(0, 1.5, 0));
         const view2Pos = playerContainer.position.clone().sub(toDoorDir.clone().multiplyScalar(15.0)).add(new THREE.Vector3(0, 6.0, 0));
         const lookAtDoor = doorsCenter.clone().add(new THREE.Vector3(0, 2, 0));
@@ -95,7 +94,7 @@ export function updateSmartCamera(camera, playerContainer, collisionMeshes, dt, 
             const smoothT = t * t * (3 - 2 * t);
             camera.position.lerpVectors(_cinematicStartPos, view1Pos, smoothT);
             camera.lookAt(new THREE.Vector3().lerpVectors(_cinematicStartLook, lookAtDoor, smoothT));
-            _currentLookAt.copy(lookAtDoor); // Sincronizar
+            _currentLookAt.copy(lookAtDoor); 
         } else if (localTime < 5.0) {
             const t = (localTime - 2.0) / 3.0;
             const smoothT = t * t * (3 - 2 * t);
@@ -108,7 +107,7 @@ export function updateSmartCamera(camera, playerContainer, collisionMeshes, dt, 
         return;
     }
 
-    // --- MODO 2: RETORNO (La cámara vuelve suavemente al hombro) ---
+    // --- MODO 2: RETORNO ---
     if (isReturning) {
         const localTime = time - returnStartTime;
         const duration = 2.0; 
@@ -123,7 +122,6 @@ export function updateSmartCamera(camera, playerContainer, collisionMeshes, dt, 
             
             let startTheta = _returnStartTheta;
             let endTheta = camSettings.theta;
-            // Corregir vuelta de 360 grados
             if (endTheta - startTheta > Math.PI) endTheta -= Math.PI * 2;
             if (endTheta - startTheta < -Math.PI) endTheta += Math.PI * 2;
             
@@ -148,7 +146,6 @@ export function updateSmartCamera(camera, playerContainer, collisionMeshes, dt, 
     }
 
     // --- MODO 3: JUEGO NORMAL ---
-    // Colisiones de cámara
     _camIdeal.set(
         camSettings.radius * Math.sin(camSettings.phi) * Math.sin(camSettings.theta),
         camSettings.radius * Math.cos(camSettings.phi),
@@ -176,8 +173,4 @@ export function updateSmartCamera(camera, playerContainer, collisionMeshes, dt, 
     if (!isLookAtInitialized) { _currentLookAt.copy(targetLook); isLookAtInitialized = true; }
     _currentLookAt.lerp(targetLook, 0.25); 
     camera.lookAt(_currentLookAt);
-
-    // Debug
-    const dbgX = document.getElementById('dbg-x');
-    if(dbgX) dbgX.innerText = camera.position.x.toFixed(2);
 }
