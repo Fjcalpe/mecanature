@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { loadPlayer, updatePlayer, playerState, jump, shoot } from './player.js';
 import { updateSmartCamera, camSettings, startCameraCinematic, startCameraReturn } from './camera.js';
-import { loadLevel, levelState, spawnOrbsAtDoor, launchOrbs, updateOrbsLogic } from './level.js';
+import { loadLevel, levelState, spawnOrbsAtDoor, launchOrbs, updateOrbsLogic, generateInstancedGrass } from './level.js';
 
 // --- CONFIGURACIÓN BÁSICA ---
 const scene = new THREE.Scene();
@@ -54,11 +54,11 @@ new THREE.TextureLoader().load('./assets/textures/bg_reflejosIBL.webp', (t) => {
 });
 
 // -----------------------------------------------------------
-// --- 4. INPUTS & JOYSTICK (FIX EVENTOS FANTASMA) ---
+// --- INPUTS & JOYSTICK (SOPORTE MULTITOUCH) ---
 // -----------------------------------------------------------
 let joystickVector = { x: 0, y: 0 }; 
 let isDraggingJoystick = false;
-let joystickTouchId = null; // Guardamos el ID del dedo
+let joystickTouchId = null; 
 
 const joystickContainer = document.getElementById('joystick-container'); 
 const joystickThumb = document.getElementById('joystick-thumb');
@@ -66,14 +66,12 @@ const joystickThumb = document.getElementById('joystick-thumb');
 const handleJoystickMove = (e) => { 
     if (!isDraggingJoystick) return; 
 
-    // Prevenir comportamientos por defecto
     if(e.cancelable && e.type.startsWith('touch')) e.preventDefault();
     if(e.stopPropagation) e.stopPropagation();
 
     const rect = joystickContainer.getBoundingClientRect(); 
     let clientX, clientY;
 
-    // Buscar el dedo correcto
     if (e.touches) {
         let found = false;
         for (let i = 0; i < e.touches.length; i++) {
@@ -99,12 +97,7 @@ const handleJoystickMove = (e) => {
 };
 
 const stopJoystick = (e) => {
-    // PROTECCIÓN: Si estamos usando TOUCH, ignorar eventos de MOUSE (MouseUp fantasma)
-    if (joystickTouchId !== null && joystickTouchId !== 'mouse' && !e.changedTouches) {
-        return; 
-    }
-
-    // Si es touch, verificar que se levantó EL DEDO DEL JOYSTICK
+    // Si es touch, solo paramos si se levantó EL DEDO DEL JOYSTICK
     if (e.changedTouches) {
         let joystickEnded = false;
         for (let i = 0; i < e.changedTouches.length; i++) {
@@ -113,10 +106,9 @@ const stopJoystick = (e) => {
                 break;
             }
         }
-        if (!joystickEnded) return; // Fue otro dedo (el de saltar), ignorar.
+        if (!joystickEnded) return; // Se levantó otro dedo (ej: salto), ignoramos
     }
 
-    // Resetear todo
     isDraggingJoystick = false; 
     joystickTouchId = null;
     joystickVector = { x: 0, y: 0 }; 
@@ -138,37 +130,51 @@ const startJoystick = (e) => {
     }
 };
 
-// Listeners
 joystickContainer.addEventListener('touchstart', startJoystick, {passive: false});
 joystickContainer.addEventListener('mousedown', startJoystick);
-
 window.addEventListener('touchmove', handleJoystickMove, {passive: false});
 window.addEventListener('mousemove', handleJoystickMove);
-
 window.addEventListener('touchend', stopJoystick);
 window.addEventListener('mouseup', stopJoystick);
 
-// BOTONES DE ACCIÓN BLINDADOS
+// BOTONES DE ACCIÓN (Blindados contra conflictos con Joystick)
 const bindAction = (id, action) => {
     const btn = document.getElementById(id);
     if(!btn) return;
     
     const trigger = (e) => { 
-        // ¡CRUCIAL! Esto evita que el navegador genere un click/mouseup fantasma después
         if(e.cancelable) e.preventDefault(); 
         if(e.stopPropagation) e.stopPropagation(); 
         action(); 
     };
 
-    // Escuchamos touchstart con passive: false para poder hacer preventDefault
+    // Al soltar el botón, también paramos la propagación para que el joystick no se entere
+    const stopProp = (e) => {
+         if(e.stopPropagation) e.stopPropagation();
+         if(e.cancelable) e.preventDefault(); 
+    };
+
     btn.addEventListener('touchstart', trigger, {passive: false});
-    
-    // Mousedown para PC (si es táctil, preventDefault arriba evitará que esto salte doble)
+    btn.addEventListener('touchend', stopProp, {passive: false}); // <--- ESTO ES LA CLAVE
     btn.addEventListener('mousedown', trigger);
+    btn.addEventListener('mouseup', stopProp);
 };
 
 bindAction('btn-jump', jump);
 bindAction('btn-shoot', () => shoot(scene));
+
+
+// --- LOGICA DE SLIDER DE HIERBA ---
+const grassSlider = document.getElementById('grass-slider');
+const grassLabel = document.getElementById('grass-val');
+if (grassSlider) {
+    grassSlider.addEventListener('input', (e) => {
+        const val = parseInt(e.target.value);
+        if (grassLabel) grassLabel.innerText = val;
+        levelState.grassParams.count = val;
+        generateInstancedGrass(scene);
+    });
+}
 
 
 // --- CARGA DE NIVEL Y JUGADOR ---
@@ -200,7 +206,6 @@ function animate() {
     const dt = Math.min(clock.getDelta(), 0.1);
     const time = performance.now() / 1000;
     
-    // FPS
     frames++; 
     if (performance.now() >= lastTime + 1000) { 
         if(fpsDisplay) fpsDisplay.innerText = "FPS: " + frames; 
@@ -215,7 +220,7 @@ function animate() {
 
         if (levelState.bgMesh) levelState.bgMesh.position.copy(camera.position);
 
-        // --- MÁQUINA DE ESTADOS (MISIONES) ---
+        // --- MÁQUINA DE ESTADOS ---
         if (questState === 0) {
             if (checkPlatform()) {
                 questState = 1; 
