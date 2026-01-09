@@ -2,9 +2,118 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Juego Modular</title>
-    <link rel="stylesheet" href="style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, minimum-scale=1.0">
+    <title>Juego 3D - Versión Final</title>
+    <style>
+        /* --- ESTILOS GENERALES --- */
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #000; 
+            font-family: sans-serif; 
+            touch-action: none; /* Vital para móviles */
+            user-select: none; 
+            -webkit-user-select: none;
+        }
+        
+        /* CONTADOR DE FPS (Verde, arriba derecha) */
+        #fps-display {
+            position: absolute; top: 10px; right: 10px;
+            background: rgba(0, 0, 0, 0.5); color: #00ff00; 
+            padding: 5px 10px; border-radius: 4px;
+            font-family: monospace; font-weight: bold; font-size: 14px;
+            pointer-events: none; z-index: 200;
+        }
+
+        /* MENSAJES DE MISIÓN (Centro pantalla) */
+        #quest-message {
+            position: absolute; top: 20%; left: 50%; transform: translate(-50%, -50%);
+            color: cyan; font-family: 'Courier New', Courier, monospace;
+            font-size: 24px; font-weight: bold; text-shadow: 0 0 10px cyan;
+            text-align: center; display: none; pointer-events: none; z-index: 300;
+            background: rgba(0,0,0,0.4); padding: 20px; border: 1px solid cyan;
+        }
+
+        /* BARRAS NEGRAS DE CINE */
+        .cinematic-bar {
+            position: absolute; left: 0; width: 100%; height: 0;
+            background: black; z-index: 150; transition: height 0.5s;
+        }
+        #bar-top { top: 0; }
+        #bar-bottom { bottom: 0; }
+        
+        /* Al activar modo cine, las barras crecen y la UI desaparece */
+        body.cinematic-mode #bar-top, body.cinematic-mode #bar-bottom { height: 10%; }
+        body.cinematic-mode .ui-element { opacity: 0; pointer-events: none; }
+        
+        .ui-element { transition: opacity 0.5s; }
+
+        /* JOYSTICK VIRTUAL */
+        #joystick-container {
+            position: absolute; bottom: 30px; left: 30px;
+            width: 120px; height: 120px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            z-index: 100; touch-action: none; cursor: pointer;
+        }
+        #joystick-thumb {
+            width: 50px; height: 50px;
+            background: rgba(255, 238, 177, 0.8);
+            border-radius: 50%;
+            position: absolute; transform: translate(0px, 0px); 
+            pointer-events: none; 
+        }
+
+        /* BOTONES DE ACCIÓN (Saltar/Disparar) */
+        #actions-container {
+            position: absolute; bottom: 30px; right: 30px;
+            display: flex; flex-direction: column; gap: 15px; z-index: 100;
+        }
+        .action-btn {
+            width: 70px; height: 70px;
+            background: rgba(255, 255, 255, 0.15);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            color: white; font-size: 14px; font-weight: bold;
+            cursor: pointer; backdrop-filter: blur(4px); touch-action: none;
+        }
+        .action-btn:active { background: rgba(255, 238, 177, 0.5); transform: scale(0.95); }
+        #btn-shoot { background: rgba(255, 50, 50, 0.3); } 
+
+        /* INSTRUCCIONES SOLO PARA PC */
+        @media (max-width: 800px) { #pc-instructions { display: none; } }
+        #pc-instructions {
+            position: absolute; bottom: 10px; width: 100%; text-align: center;
+            color: rgba(255, 255, 255, 0.3); font-size: 12px; pointer-events: none;
+        }
+        
+        /* LOG DE ERRORES (Oculto por defecto) */
+        #error-log {
+            position: absolute; top: 40px; left: 0; background: red; color: white; 
+            padding: 5px; font-size: 10px; display: none; z-index: 9999;
+        }
+    </style>
+</head>
+<body>
+    <div id="bar-top" class="cinematic-bar"></div>
+    <div id="bar-bottom" class="cinematic-bar"></div>
+
+    <div id="fps-display">FPS: 0</div>
+    <div id="quest-message">WORK AND BE PATIENT</div>
+    <div id="error-log"></div>
+
+    <div id="joystick-container" class="ui-element"><div id="joystick-thumb"></div></div>
+
+    <div id="actions-container" class="ui-element">
+        <div class="action-btn" id="btn-jump">SALTAR</div>
+        <div class="action-btn" id="btn-shoot">DISPARAR</div>
+    </div>
+    
+    <div id="pc-instructions" class="ui-element">WASD: Mover | ESPACIO: Saltar</div>
+
     <script type="importmap">
         {
             "imports": {
@@ -13,22 +122,16 @@
             }
         }
     </script>
-</head>
-<body>
-    <div id="fps-display">FPS: 0</div>
-    <div id="debug-ui">
-        <strong>CAMERA</strong><br>
-        X: <span id="dbg-x">0</span><br>
-        Phi: <span id="dbg-phi">0</span>
-    </div>
 
-    <div id="quest-message">WORK AND BE PATIENT</div>
-    <div id="joystick-container"><div id="joystick-thumb"></div></div>
-    <div id="actions-container">
-        <div class="action-btn" id="btn-jump">SALTAR</div>
-        <div class="action-btn" id="btn-shoot">DISPARAR</div>
-    </div>
-    <div id="pc-instructions">WASD: Mover | ESPACIO: Saltar</div>
+    <script>
+        window.addEventListener('error', function(e) {
+            const el = document.getElementById('error-log');
+            if(el) {
+                el.style.display = 'block';
+                el.innerHTML += "Error: " + e.message + "<br>";
+            }
+        });
+    </script>
 
     <script type="module" src="./js/main.js"></script>
 </body>
