@@ -53,28 +53,38 @@ new THREE.TextureLoader().load('./assets/textures/bg_reflejosIBL.webp', (t) => {
     if(scene.environmentRotation) scene.environmentRotation.y = THREE.MathUtils.degToRad(334); 
 });
 
-// ----------------------------------------------
-// --- 4. INPUTS & JOYSTICK (BLINDADO) ---
-// ----------------------------------------------
+// -----------------------------------------------------------
+// --- 4. INPUTS & JOYSTICK (FIX EVENTOS FANTASMA) ---
+// -----------------------------------------------------------
 let joystickVector = { x: 0, y: 0 }; 
 let isDraggingJoystick = false;
+let joystickTouchId = null; // Guardamos el ID del dedo
+
 const joystickContainer = document.getElementById('joystick-container'); 
 const joystickThumb = document.getElementById('joystick-thumb');
 
-const handleJoystick = (e) => { 
+const handleJoystickMove = (e) => { 
     if (!isDraggingJoystick) return; 
-    
-    // Evitar scroll y propagación extra
+
+    // Prevenir comportamientos por defecto
     if(e.cancelable && e.type.startsWith('touch')) e.preventDefault();
     if(e.stopPropagation) e.stopPropagation();
 
     const rect = joystickContainer.getBoundingClientRect(); 
-    
-    // Soporte para Mouse y Touch
     let clientX, clientY;
-    if (e.touches && e.touches.length > 0) {
-        clientX = e.touches[0].clientX;
-        clientY = e.touches[0].clientY;
+
+    // Buscar el dedo correcto
+    if (e.touches) {
+        let found = false;
+        for (let i = 0; i < e.touches.length; i++) {
+            if (e.touches[i].identifier === joystickTouchId) {
+                clientX = e.touches[i].clientX;
+                clientY = e.touches[i].clientY;
+                found = true;
+                break;
+            }
+        }
+        if (!found) return; 
     } else {
         clientX = e.clientX;
         clientY = e.clientY;
@@ -89,47 +99,72 @@ const handleJoystick = (e) => {
 };
 
 const stopJoystick = (e) => {
+    // PROTECCIÓN: Si estamos usando TOUCH, ignorar eventos de MOUSE (MouseUp fantasma)
+    if (joystickTouchId !== null && joystickTouchId !== 'mouse' && !e.changedTouches) {
+        return; 
+    }
+
+    // Si es touch, verificar que se levantó EL DEDO DEL JOYSTICK
+    if (e.changedTouches) {
+        let joystickEnded = false;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            if (e.changedTouches[i].identifier === joystickTouchId) {
+                joystickEnded = true;
+                break;
+            }
+        }
+        if (!joystickEnded) return; // Fue otro dedo (el de saltar), ignorar.
+    }
+
+    // Resetear todo
     isDraggingJoystick = false; 
+    joystickTouchId = null;
     joystickVector = { x: 0, y: 0 }; 
     joystickThumb.style.transform = `translate(0px, 0px)`;
 };
 
 const startJoystick = (e) => {
-    // ¡LA CLAVE! Detener propagación inmediatamente para que camera.js no se entere
     if(e.stopPropagation) e.stopPropagation();
     if(e.cancelable && e.type.startsWith('touch')) e.preventDefault();
     
     isDraggingJoystick = true; 
-    handleJoystick(e); 
+    
+    if (e.changedTouches && e.changedTouches.length > 0) {
+        joystickTouchId = e.changedTouches[0].identifier;
+        handleJoystickMove(e); 
+    } else {
+        joystickTouchId = 'mouse';
+        handleJoystickMove(e); 
+    }
 };
 
-// Usamos 'pointerdown' porque la cámara usa 'pointerdown'. 
-// Al pararlo aquí, la cámara nunca recibe el aviso.
-joystickContainer.addEventListener('pointerdown', startJoystick);
-
-// Mantener compatibilidad si el navegador prefiere touch
+// Listeners
 joystickContainer.addEventListener('touchstart', startJoystick, {passive: false});
 joystickContainer.addEventListener('mousedown', startJoystick);
 
-window.addEventListener('mousemove', (e) => { if(isDraggingJoystick) handleJoystick(e); });
-window.addEventListener('touchmove', (e) => { if(isDraggingJoystick) handleJoystick(e); }, {passive: false});
+window.addEventListener('touchmove', handleJoystickMove, {passive: false});
+window.addEventListener('mousemove', handleJoystickMove);
 
-// Usamos pointerup/touchend/mouseup globales para soltar
-window.addEventListener('pointerup', stopJoystick);
 window.addEventListener('touchend', stopJoystick);
 window.addEventListener('mouseup', stopJoystick);
 
-// Botones de acción (También protegidos)
+// BOTONES DE ACCIÓN BLINDADOS
 const bindAction = (id, action) => {
     const btn = document.getElementById(id);
     if(!btn) return;
+    
     const trigger = (e) => { 
-        if(e.stopPropagation) e.stopPropagation(); 
+        // ¡CRUCIAL! Esto evita que el navegador genere un click/mouseup fantasma después
         if(e.cancelable) e.preventDefault(); 
+        if(e.stopPropagation) e.stopPropagation(); 
         action(); 
     };
-    // Usar pointerdown asegura que ganamos a cualquier otro evento
-    btn.addEventListener('pointerdown', trigger);
+
+    // Escuchamos touchstart con passive: false para poder hacer preventDefault
+    btn.addEventListener('touchstart', trigger, {passive: false});
+    
+    // Mousedown para PC (si es táctil, preventDefault arriba evitará que esto salte doble)
+    btn.addEventListener('mousedown', trigger);
 };
 
 bindAction('btn-jump', jump);
