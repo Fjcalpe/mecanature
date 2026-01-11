@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { loadPlayer, updatePlayer, playerState, jump, shoot } from './player.js';
 import { updateSmartCamera, camSettings, startCameraCinematic, startCameraReturn } from './camera.js';
-import { loadLevel, levelState, spawnOrbsAtDoor, launchOrbs, updateOrbsLogic, generateInstancedGrass } from './level.js';
+import { loadLevel, levelState, spawnOrbsAtDoor, launchOrbs, updateOrbsLogic, generateInstancedGrass, updateAllOrbParticles } from './level.js';
+import { InGameEditor } from './editor_ui.js'; 
+import { initUI, inputState, fpsDisplay, msgDisplay } from './ui_manager.js';
 
-// --- CONFIGURACIÓN BÁSICA ---
+// --- CONFIGURACIÓN ESCENA ---
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0xeecfa1, 0.022);
 
@@ -18,12 +20,11 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
-// --- LUCES Y SOL ---
+// --- ILUMINACIÓN (Valores originales restaurados) ---
 const sunDistance = 50; 
 const sunElevation = 13; 
 const sunRotation = 270; 
 let sunOffset = new THREE.Vector3();
-
 const phi = THREE.MathUtils.degToRad(90 - sunElevation); 
 const theta = THREE.MathUtils.degToRad(sunRotation);
 sunOffset.set(
@@ -35,16 +36,15 @@ sunOffset.set(
 const sunLight = new THREE.DirectionalLight(0xffeeb1, 6.0);
 sunLight.castShadow = true; 
 sunLight.shadow.mapSize.set(2048, 2048); 
-sunLight.shadow.camera.left = -20; sunLight.shadow.camera.right = 20; sunLight.shadow.camera.top = 20; sunLight.shadow.camera.bottom = -20;
+sunLight.shadow.camera.left = -20; sunLight.shadow.camera.right = 20; 
+sunLight.shadow.camera.top = 20; sunLight.shadow.camera.bottom = -20;
 sunLight.shadow.camera.near = 0.5; sunLight.shadow.camera.far = 150;
 sunLight.shadow.bias = -0.0005; 
 sunLight.shadow.normalBias = 0.05; 
-
-scene.add(sunLight); 
-scene.add(sunLight.target); 
+scene.add(sunLight); scene.add(sunLight.target); 
 scene.add(new THREE.HemisphereLight(0xffd580, 0x222233, 0.5));
 
-// --- ENTORNO ---
+// --- ENVIRONMENT MAP ---
 new THREE.TextureLoader().load('./assets/textures/bg_reflejosIBL.webp', (t) => { 
     t.mapping = THREE.EquirectangularReflectionMapping; 
     t.colorSpace = THREE.SRGBColorSpace; 
@@ -53,227 +53,154 @@ new THREE.TextureLoader().load('./assets/textures/bg_reflejosIBL.webp', (t) => {
     if(scene.environmentRotation) scene.environmentRotation.y = THREE.MathUtils.degToRad(334); 
 });
 
-// -----------------------------------------------------------
-// --- INPUTS & JOYSTICK (SOPORTE MULTITOUCH) ---
-// -----------------------------------------------------------
-let joystickVector = { x: 0, y: 0 }; 
-let isDraggingJoystick = false;
-let joystickTouchId = null; 
-
-const joystickContainer = document.getElementById('joystick-container'); 
-const joystickThumb = document.getElementById('joystick-thumb');
-
-const handleJoystickMove = (e) => { 
-    if (!isDraggingJoystick) return; 
-
-    if(e.cancelable && e.type.startsWith('touch')) e.preventDefault();
-    if(e.stopPropagation) e.stopPropagation();
-
-    const rect = joystickContainer.getBoundingClientRect(); 
-    let clientX, clientY;
-
-    if (e.touches) {
-        let found = false;
-        for (let i = 0; i < e.touches.length; i++) {
-            if (e.touches[i].identifier === joystickTouchId) {
-                clientX = e.touches[i].clientX;
-                clientY = e.touches[i].clientY;
-                found = true;
-                break;
-            }
-        }
-        if (!found) return; 
-    } else {
-        clientX = e.clientX;
-        clientY = e.clientY;
-    }
-
-    let x = clientX - (rect.left + rect.width / 2); 
-    let y = clientY - (rect.top + rect.height / 2); 
-    let dist = Math.sqrt(x*x + y*y); 
-    if (dist > 60) { x = (x / dist) * 60; y = (y / dist) * 60; } 
-    joystickThumb.style.transform = `translate(${x}px, ${y}px)`; 
-    joystickVector.x = x / 60; joystickVector.y = y / 60; 
-};
-
-const stopJoystick = (e) => {
-    // Si es touch, solo paramos si se levantó EL DEDO DEL JOYSTICK
-    if (e.changedTouches) {
-        let joystickEnded = false;
-        for (let i = 0; i < e.changedTouches.length; i++) {
-            if (e.changedTouches[i].identifier === joystickTouchId) {
-                joystickEnded = true;
-                break;
-            }
-        }
-        if (!joystickEnded) return; // Se levantó otro dedo (ej: salto), ignoramos
-    }
-
-    isDraggingJoystick = false; 
-    joystickTouchId = null;
-    joystickVector = { x: 0, y: 0 }; 
-    joystickThumb.style.transform = `translate(0px, 0px)`;
-};
-
-const startJoystick = (e) => {
-    if(e.stopPropagation) e.stopPropagation();
-    if(e.cancelable && e.type.startsWith('touch')) e.preventDefault();
-    
-    isDraggingJoystick = true; 
-    
-    if (e.changedTouches && e.changedTouches.length > 0) {
-        joystickTouchId = e.changedTouches[0].identifier;
-        handleJoystickMove(e); 
-    } else {
-        joystickTouchId = 'mouse';
-        handleJoystickMove(e); 
-    }
-};
-
-joystickContainer.addEventListener('touchstart', startJoystick, {passive: false});
-joystickContainer.addEventListener('mousedown', startJoystick);
-window.addEventListener('touchmove', handleJoystickMove, {passive: false});
-window.addEventListener('mousemove', handleJoystickMove);
-window.addEventListener('touchend', stopJoystick);
-window.addEventListener('mouseup', stopJoystick);
-
-// BOTONES DE ACCIÓN (Blindados contra conflictos con Joystick)
-const bindAction = (id, action) => {
-    const btn = document.getElementById(id);
-    if(!btn) return;
-    
-    const trigger = (e) => { 
-        if(e.cancelable) e.preventDefault(); 
-        if(e.stopPropagation) e.stopPropagation(); 
-        action(); 
-    };
-
-    // Al soltar el botón, también paramos la propagación para que el joystick no se entere
-    const stopProp = (e) => {
-         if(e.stopPropagation) e.stopPropagation();
-         if(e.cancelable) e.preventDefault(); 
-    };
-
-    btn.addEventListener('touchstart', trigger, {passive: false});
-    btn.addEventListener('touchend', stopProp, {passive: false}); // <--- ESTO ES LA CLAVE
-    btn.addEventListener('mousedown', trigger);
-    btn.addEventListener('mouseup', stopProp);
-};
-
-bindAction('btn-jump', jump);
-bindAction('btn-shoot', () => shoot(scene));
-
-
-// --- LOGICA DE SLIDER DE HIERBA ---
-const grassSlider = document.getElementById('grass-slider');
-const grassLabel = document.getElementById('grass-val');
-if (grassSlider) {
-    grassSlider.addEventListener('input', (e) => {
-        const val = parseInt(e.target.value);
-        if (grassLabel) grassLabel.innerText = val;
-        levelState.grassParams.count = val;
+// --- INICIALIZAR UI Y INPUTS ---
+initUI({
+    onJump: jump,
+    onShoot: () => shoot(scene),
+    onGrassChange: (val) => {
+        levelState.grassParams.count = val; 
         generateInstancedGrass(scene);
-    });
-}
+    }
+});
 
+// Evento para cargar partículas desde JSON
+window.addEventListener('loadParticles', (e) => updateAllOrbParticles(e.detail));
 
-// --- CARGA DE NIVEL Y JUGADOR ---
+// --- CARGA DE ASSETS ---
 const loadingManager = new THREE.LoadingManager();
 loadLevel(scene, loadingManager, './assets/models/MN_SCENE_01.gltf');
 loadPlayer(scene, loadingManager);
 
-// --- ESTADO DEL JUEGO ---
-let questState = 0; 
-let cinematicStartTime = 0;
-let orbsLaunched = false;
-const msgDisplay = document.getElementById('quest-message');
-const raycaster = new THREE.Raycaster();
+loadingManager.onLoad = () => {
+    // Inicializar editor solo cuando todo esté cargado
+    if (typeof InGameEditor !== 'undefined' && levelState.orbs.length > 0) {
+        new InGameEditor(scene, camera, renderer, levelState.orbs);
+    }
+};
 
-function checkPlatform() {
-    if(!playerState.container || !levelState.platformMesh) return false;
-    raycaster.set(playerState.container.position.clone().add(new THREE.Vector3(0,1,0)), new THREE.Vector3(0,-1,0));
-    raycaster.far = 2.0;
-    return raycaster.intersectObject(levelState.platformMesh, false).length > 0;
+// --- LÓGICA DE JUEGO ---
+let questState = 0; 
+let cinematicStartTime = 0; 
+let orbsLaunched = false;
+const raycaster = new THREE.Raycaster();
+const clock = new THREE.Clock(); 
+
+function checkPlatform() { 
+    if(!playerState.container || !levelState.platformMesh) return false; 
+    raycaster.set(playerState.container.position.clone().add(new THREE.Vector3(0,1,0)), new THREE.Vector3(0,-1,0)); 
+    raycaster.far = 2.0; 
+    return raycaster.intersectObject(levelState.platformMesh, false).length > 0; 
+}
+
+function updateQuestLogic(dt, time) {
+    if (questState === 0) {
+        if (checkPlatform()) { 
+            questState = 1; 
+            cinematicStartTime = time; 
+            orbsLaunched = false; 
+            if(msgDisplay) { msgDisplay.style.display = 'block'; setTimeout(() => msgDisplay.style.display = 'none', 5000); } 
+            spawnOrbsAtDoor(playerState.container.position); 
+            
+            const d = new THREE.Vector3(); 
+            camera.getWorldDirection(d); 
+            startCameraCinematic(camera, camera.position.clone().add(d)); 
+        }
+    } else if (questState === 1) {
+        const cinTime = time - cinematicStartTime; 
+        if (cinTime > 5.0 && !orbsLaunched) { 
+            launchOrbs(camera.position, time); 
+            orbsLaunched = true; 
+        } 
+        if (cinTime > 6.5) { 
+            startCameraReturn(camera, playerState.container.position, levelState.doorsCenter); 
+            questState = 2; 
+        }
+    } else if (questState === 2) {
+        let collectedCount = 0;
+        levelState.orbs.forEach((orb, i) => { 
+            if (orb.state === 'editor_mode') return; 
+            if(orb.collected) { 
+                collectedCount++; 
+                const target = (i===0 ? playerState.container.position : levelState.orbs[i-1].mesh.position).clone(); 
+                target.y += (i===0?1.8:0.4); 
+                orb.mesh.position.lerp(target, 5 * dt); 
+            } 
+        });
+
+        if (collectedCount === 3) {
+            if(checkPlatform()) {
+                if (Math.abs(playerState.speed) < 0.1) { 
+                    questState = 3; 
+                    levelState.doorActions.forEach(a => a.play()); 
+                    if(msgDisplay) { msgDisplay.innerText = "PUERTA ABIERTA"; msgDisplay.style.display = 'block'; } 
+                } else { 
+                    if(msgDisplay) { msgDisplay.innerText = "QUIETO EN EL ALTAR"; msgDisplay.style.display = 'block'; } 
+                } 
+            } else {
+                 if(msgDisplay) { msgDisplay.innerText = "VUELVE AL ALTAR"; msgDisplay.style.display = 'block'; }
+            }
+        } else { 
+            if(msgDisplay) msgDisplay.style.display = 'none'; 
+        }
+    }
 }
 
 // --- BUCLE PRINCIPAL ---
-const clock = new THREE.Clock();
-const fpsDisplay = document.getElementById('fps-display');
 let frames = 0, lastTime = performance.now();
 
 function animate() {
     requestAnimationFrame(animate);
-    const dt = Math.min(clock.getDelta(), 0.1);
-    const time = performance.now() / 1000;
     
+    const dt = Math.min(clock.getDelta(), 0.1);
+    const elapsedTime = clock.getElapsedTime();
+    const perfTime = performance.now();
+
+    // FPS Counter
     frames++; 
-    if (performance.now() >= lastTime + 1000) { 
+    if (perfTime >= lastTime + 1000) { 
         if(fpsDisplay) fpsDisplay.innerText = "FPS: " + frames; 
-        frames = 0; 
-        lastTime = performance.now(); 
+        frames = 0; lastTime = perfTime; 
     }
 
+    // --- ARREGLO DE PARTÍCULAS: Actualizar SIEMPRE ---
+    // Sacamos esto fuera del 'if(playerState.container)' para que funcione siempre.
+    // Usamos una posición segura (0,0,0) si el jugador no ha cargado aún.
+    const playerPos = playerState.container ? playerState.container.position : new THREE.Vector3(0,0,0);
+    let cTime = 0; if(questState===1) cTime = elapsedTime - cinematicStartTime;
+    
+    updateOrbsLogic(dt, elapsedTime, playerPos, camera.position, cTime);
+
     if (playerState.container) {
+        // Actualizar Sol
         sunLight.target.position.set(0, 0, playerState.container.position.z); 
         sunLight.target.updateMatrixWorld(); 
         sunLight.position.copy(sunLight.target.position).add(sunOffset);
-
+        
+        // Skybox sigue cámara
         if (levelState.bgMesh) levelState.bgMesh.position.copy(camera.position);
 
-        // --- MÁQUINA DE ESTADOS ---
-        if (questState === 0) {
-            if (checkPlatform()) {
-                questState = 1; 
-                cinematicStartTime = time;
-                orbsLaunched = false;
-                if(msgDisplay) { msgDisplay.style.display = 'block'; setTimeout(() => msgDisplay.style.display = 'none', 5000); }
-                spawnOrbsAtDoor(playerState.container.position);
-                const d = new THREE.Vector3(); camera.getWorldDirection(d);
-                startCameraCinematic(camera, camera.position.clone().add(d));
-            }
-        } 
-        else if (questState === 1) {
-            const cinTime = time - cinematicStartTime;
-            if (cinTime > 5.0 && !orbsLaunched) { launchOrbs(camera.position, time); orbsLaunched = true; }
-            if (cinTime > 6.5) { startCameraReturn(camera, playerState.container.position, levelState.doorsCenter); questState = 2; }
-        }
-        else if (questState === 2) {
-            let collectedCount = 0;
-            levelState.orbs.forEach((orb, i) => { 
-                if(orb.collected) { 
-                    collectedCount++; 
-                    const target = (i===0 ? playerState.container.position : levelState.orbs[i-1].mesh.position).clone(); 
-                    target.y += (i===0?1.8:0.4); 
-                    orb.mesh.position.lerp(target, 5 * dt); 
-                } 
-            });
-
-            if (collectedCount === 3 && checkPlatform()) {
-                if (Math.abs(playerState.speed) < 0.1) { 
-                    questState = 3;
-                    levelState.doorActions.forEach(a => a.play());
-                    if(msgDisplay) { msgDisplay.innerText = "PUERTA ABIERTA"; msgDisplay.style.display = 'block'; }
-                } else {
-                    if(msgDisplay) { msgDisplay.innerText = "QUIETO EN EL ALTAR"; msgDisplay.style.display = 'block'; }
-                }
-            } else if (collectedCount === 3) {
-                 if(msgDisplay) { msgDisplay.innerText = "VUELVE AL ALTAR"; msgDisplay.style.display = 'block'; }
-            } else {
-                 if(msgDisplay) msgDisplay.style.display = 'none';
-            }
-        }
+        updateQuestLogic(dt, elapsedTime);
 
         const isCamActive = (questState === 1);
-        updatePlayer(dt, camera, joystickVector, levelState.collisionMeshes, isCamActive);
+        updatePlayer(dt, camera, inputState.joystickVector, levelState.collisionMeshes, isCamActive);
         updateSmartCamera(camera, playerState.container, levelState.collisionMeshes, dt, levelState.doorsCenter);
-        
-        let cTime = 0; if(questState===1) cTime = time - cinematicStartTime;
-        updateOrbsLogic(dt, time, playerState.container.position, camera.position, cTime);
     }
 
     if (levelState.sceneMixer) levelState.sceneMixer.update(dt);
-    levelState.grassMaterialUniforms.time.value = clock.getElapsedTime();
+    
+    // --- UPDATE HIERBA ---
+    if (levelState.grassMaterialUniforms) {
+        levelState.grassMaterialUniforms.time.value = elapsedTime;
+    }
+    
     renderer.render(scene, camera);
 }
+
+// --- RESIZE HANDLER ---
+window.addEventListener('resize', () => { 
+    camera.aspect = window.innerWidth/window.innerHeight; 
+    camera.updateProjectionMatrix(); 
+    renderer.setSize(window.innerWidth, window.innerHeight); 
+});
+
 animate();
-window.addEventListener('resize', () => { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
