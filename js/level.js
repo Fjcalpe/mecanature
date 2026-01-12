@@ -2,6 +2,86 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { ParticleSystem3D } from './particles.js';
 
+// --- CONFIGURACIÓN POR DEFECTO (Con carga de PNG externo) ---
+const DEFAULT_ORB_CONFIG = {
+  "layers": [
+    {
+      "id": 1,
+      "enabled": true,
+      "genType": "image",
+      "genColor": "#ffffff",
+      "blendMode": "add",
+      "sourceType": "image",
+      // CAMBIO AQUÍ: Ahora busca el archivo en la carpeta de texturas
+      "imageSrc": "./assets/textures/particle.png", 
+      "emissionRate": 230,
+      "life": {
+        "min": 0.7,
+        "max": 4.1
+      },
+      "speed": {
+        "value": 0.5,
+        "random": 0
+      },
+      "scale": {
+        "start": 0.2,
+        "end": 0
+      },
+      "alpha": {
+        "start": 1,
+        "end": 0.35
+      },
+      "gravity": {
+        "x": 0,
+        "y": 0
+      },
+      "globalOpacity": 1,
+      "spawnRadius": 0.2
+    },
+    {
+      "id": 2,
+      "enabled": true,
+      "genType": "glow",
+      "genColor": "#00ccdd",
+      "blendMode": "add",
+      "sourceType": "generator",
+      "imageSrc": null,
+      "emissionRate": 167,
+      "life": {
+        "min": 0.2,
+        "max": 1
+      },
+      "speed": {
+        "value": 0.9,
+        "random": 0.3
+      },
+      "scale": {
+        "start": 1,
+        "end": 0
+      },
+      "alpha": {
+        "start": 1,
+        "end": 0.1
+      },
+      "gravity": {
+        "x": 0,
+        "y": 0
+      },
+      "globalOpacity": 1,
+      "spawnRadius": 0
+    }
+  ],
+  "orb": {
+    "radius": 0.2,
+    "color": "#00ffff",
+    "blend": "Normal"
+  },
+  "light": {
+    "color": "#00ffff",
+    "intensity": 20
+  }
+};
+
 export const levelState = {
     collisionMeshes: [], 
     platformMesh: null, 
@@ -34,20 +114,10 @@ class OrbLogic {
         this.cinematicTargetPos = new THREE.Vector3();
 
         if(ParticleSystem3D) {
-            // VALORES CARGADOS DESDE orb_design(1).json
-            this.particles = new ParticleSystem3D(scene, {
-                genType: 'glow',
-                genColor: '#00b5f0',           // Color específico del JSON
-                blendMode: 'add',
-                emissionRate: 189,             // Valor del JSON
-                spawnRadius: 0.5,              // Valor del JSON
-                life: { min: 1, max: 2.1 },    // Valor del JSON
-                speed: { value: 0.2, random: 0 }, // Valor del JSON
-                scale: { start: 0.5, end: 0 },
-                alpha: { start: 1, end: 0.35 },
-                gravity: { x: 0, y: 0 },
-                globalOpacity: 1
-            });
+            // Inicializar SIN configuración
+            this.particles = new ParticleSystem3D(scene);
+            // Cargar el preset con la imagen externa
+            this.particles.importConfig(DEFAULT_ORB_CONFIG);
             this.particles.stop();
         }
     }
@@ -170,7 +240,7 @@ export function launchOrbs(camPos, time) {
 
 export function updateAllOrbParticles(pixiConfig) {
     levelState.orbs.forEach(orb => {
-        if(orb.particles) orb.particles.importPixiConfig(pixiConfig);
+        if(orb.particles) orb.particles.importConfig(pixiConfig);
     });
 }
 
@@ -230,17 +300,21 @@ export function loadLevel(scene, loadingManager, levelFile) {
 
         for(let i=0; i<3; i++) {
             const mesh = new THREE.Mesh(
-                // Radio y segmentos del JSON
-                new THREE.SphereGeometry(0.3, 16, 16), 
+                new THREE.SphereGeometry(DEFAULT_ORB_CONFIG.orb.radius, 16, 16), 
                 new THREE.MeshStandardMaterial({ 
-                    color: 0x00ffff, 
+                    color: new THREE.Color(DEFAULT_ORB_CONFIG.orb.color), 
                     emissive: 0x004444,
                     roughness: 0.2,
-                    metalness: 0.5
+                    metalness: 0.5,
+                    transparent: true,
+                    blending: DEFAULT_ORB_CONFIG.orb.blend === 'Additive' ? THREE.AdditiveBlending : THREE.NormalBlending
                 })
             );
-            // Configuración de Luz del JSON (intensidad 20, distancia 12, decay 1.9)
-            const light = new THREE.PointLight(0x00ffff, 20, 12, 1.9);
+            const light = new THREE.PointLight(
+                new THREE.Color(DEFAULT_ORB_CONFIG.light.color), 
+                DEFAULT_ORB_CONFIG.light.intensity, 
+                12, 1.9
+            );
             mesh.add(light);
             scene.add(mesh);
             levelState.orbs.push(new OrbLogic(i, mesh, light, scene)); 
@@ -342,7 +416,6 @@ export function generateInstancedGrass(scene) {
     const count = levelState.grassParams.count;
     const windMaterial = modifyMaterialForWind(levelState.grassSource.material);
     
-    // MeshDepthMaterial limpio para sombras (Fix: Illegal Feedback)
     const depthMat = new THREE.MeshDepthMaterial({
         depthPacking: THREE.RGBADepthPacking
     });

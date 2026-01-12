@@ -20,7 +20,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
-// --- ILUMINACIÓN (Valores originales restaurados) ---
+// --- ILUMINACIÓN ---
 const sunDistance = 50; 
 const sunElevation = 13; 
 const sunRotation = 270; 
@@ -63,7 +63,6 @@ initUI({
     }
 });
 
-// Evento para cargar partículas desde JSON
 window.addEventListener('loadParticles', (e) => updateAllOrbParticles(e.detail));
 
 // --- CARGA DE ASSETS ---
@@ -72,7 +71,6 @@ loadLevel(scene, loadingManager, './assets/models/MN_SCENE_01.gltf');
 loadPlayer(scene, loadingManager);
 
 loadingManager.onLoad = () => {
-    // Inicializar editor solo cuando todo esté cargado
     if (typeof InGameEditor !== 'undefined' && levelState.orbs.length > 0) {
         new InGameEditor(scene, camera, renderer, levelState.orbs);
     }
@@ -116,14 +114,27 @@ function updateQuestLogic(dt, time) {
             questState = 2; 
         }
     } else if (questState === 2) {
+        // --- LÓGICA DE COLA / SEGUIMIENTO ---
         let collectedCount = 0;
+        
+        // CORRECCIÓN: Invertido a (0, 0, -1) para que apunte hacia ATRÁS
+        const playerBack = new THREE.Vector3(0, 0, -1).applyQuaternion(playerState.container.quaternion).normalize();
+        const baseHeight = 1.2;
+
         levelState.orbs.forEach((orb, i) => { 
             if (orb.state === 'editor_mode') return; 
             if(orb.collected) { 
                 collectedCount++; 
-                const target = (i===0 ? playerState.container.position : levelState.orbs[i-1].mesh.position).clone(); 
-                target.y += (i===0?1.8:0.4); 
-                orb.mesh.position.lerp(target, 5 * dt); 
+                
+                // Orbe 0: Cerca. Orbe 1: Más atrás...
+                const distanceBehind = 1.2 + (i * 0.8); 
+                
+                // Objetivo: Posición + (Dirección Atrás * Distancia)
+                const target = playerState.container.position.clone()
+                    .add(playerBack.clone().multiplyScalar(distanceBehind));
+                target.y += baseHeight; 
+
+                orb.mesh.position.lerp(target, 4 * dt); 
             } 
         });
 
@@ -131,6 +142,13 @@ function updateQuestLogic(dt, time) {
             if(checkPlatform()) {
                 if (Math.abs(playerState.speed) < 0.1) { 
                     questState = 3; 
+                    
+                    // OCULTAR ORBES
+                    levelState.orbs.forEach(o => {
+                        o.mesh.visible = false;
+                        if(o.particles) o.particles.stop();
+                    });
+
                     levelState.doorActions.forEach(a => a.play()); 
                     if(msgDisplay) { msgDisplay.innerText = "PUERTA ABIERTA"; msgDisplay.style.display = 'block'; } 
                 } else { 
@@ -155,28 +173,22 @@ function animate() {
     const elapsedTime = clock.getElapsedTime();
     const perfTime = performance.now();
 
-    // FPS Counter
     frames++; 
     if (perfTime >= lastTime + 1000) { 
         if(fpsDisplay) fpsDisplay.innerText = "FPS: " + frames; 
         frames = 0; lastTime = perfTime; 
     }
 
-    // --- ARREGLO DE PARTÍCULAS: Actualizar SIEMPRE ---
-    // Sacamos esto fuera del 'if(playerState.container)' para que funcione siempre.
-    // Usamos una posición segura (0,0,0) si el jugador no ha cargado aún.
     const playerPos = playerState.container ? playerState.container.position : new THREE.Vector3(0,0,0);
     let cTime = 0; if(questState===1) cTime = elapsedTime - cinematicStartTime;
     
     updateOrbsLogic(dt, elapsedTime, playerPos, camera.position, cTime);
 
     if (playerState.container) {
-        // Actualizar Sol
         sunLight.target.position.set(0, 0, playerState.container.position.z); 
         sunLight.target.updateMatrixWorld(); 
         sunLight.position.copy(sunLight.target.position).add(sunOffset);
         
-        // Skybox sigue cámara
         if (levelState.bgMesh) levelState.bgMesh.position.copy(camera.position);
 
         updateQuestLogic(dt, elapsedTime);
@@ -188,7 +200,6 @@ function animate() {
 
     if (levelState.sceneMixer) levelState.sceneMixer.update(dt);
     
-    // --- UPDATE HIERBA ---
     if (levelState.grassMaterialUniforms) {
         levelState.grassMaterialUniforms.time.value = elapsedTime;
     }
@@ -196,7 +207,6 @@ function animate() {
     renderer.render(scene, camera);
 }
 
-// --- RESIZE HANDLER ---
 window.addEventListener('resize', () => { 
     camera.aspect = window.innerWidth/window.innerHeight; 
     camera.updateProjectionMatrix(); 

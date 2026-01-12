@@ -5,25 +5,21 @@ export class InGameEditor {
         this.scene = scene;
         this.camera = camera;
         this.renderer = renderer;
-        this.orbs = orbs; // Array de instancias OrbLogic
+        this.orbs = orbs; 
         this.visible = false;
         
-        // Estado interno para arrastrar
+        this.currentLayerIndex = 0;
         this.isDraggingOrb = false;
         this.dragPlane = new THREE.Plane();
         this.raycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
+        this.selectedOrb = null;
         
-        // Guardar estado original para restaurar al cerrar
-        this.originalState = new Map();
-
         this.injectStyles();
         this.createUI();
         
-        // Sincronizar con el primer orbe
         if(this.orbs.length > 0) this.syncUI();
 
-        // Eventos globales para arrastrar el orbe
         this.renderer.domElement.addEventListener('pointerdown', (e) => this.onMouseDown(e));
         this.renderer.domElement.addEventListener('pointermove', (e) => this.onMouseMove(e));
         this.renderer.domElement.addEventListener('pointerup', () => this.onMouseUp());
@@ -39,7 +35,7 @@ export class InGameEditor {
                 box-shadow: 0 2px 5px rgba(0,0,0,0.5);
             }
             #pe-panel { 
-                position: fixed; top: 0; right: 0; width: 320px; height: 100vh; 
+                position: fixed; top: 0; right: 0; width: 340px; height: 100vh; 
                 background: rgba(20, 20, 20, 0.95); border-left: 1px solid #444; 
                 z-index: 2000; display: none; flex-direction: column; 
                 color: #ccc; font-family: 'Segoe UI', sans-serif; font-size: 11px;
@@ -58,22 +54,24 @@ export class InGameEditor {
             .pe-btn { flex: 1; padding: 8px; border: none; border-radius: 3px; cursor: pointer; color: white; font-weight: bold; font-size: 10px; text-transform: uppercase; transition: filter 0.2s; }
             .pe-btn:hover { filter: brightness(1.2); }
             .pe-save { background: #2e7d32; } .pe-load { background: #1565c0; } .pe-reset { background: #c62828; }
+            .layer-ctrl { display: flex; gap: 5px; margin-bottom: 10px; background: #333; padding: 5px; border-radius: 4px; }
+            .layer-select { flex: 1; background: #111; color: white; border: 1px solid #555; }
+            .layer-btn { width: 30px; background: #444; color: white; border: none; cursor: pointer; font-weight: bold; }
+            .layer-btn:hover { background: #666; }
+            .layer-btn.add { color: #00e676; } .layer-btn.del { color: #ff1744; }
         `;
         document.head.appendChild(style);
     }
 
     createUI() {
         const btn = document.createElement('button');
-        btn.id = 'pe-toggle';
-        btn.innerText = '✨ EDITOR';
+        btn.id = 'pe-toggle'; btn.innerText = '✨ EDITOR';
         btn.onclick = () => this.toggleEditor();
         document.body.appendChild(btn);
 
         const panel = document.createElement('div');
         panel.id = 'pe-panel';
         
-        // --- BLOQUEO DE EVENTOS ---
-        // Esto evita que al tocar el editor se mueva la cámara del juego
         ['pointerdown', 'pointerup', 'pointermove', 'touchstart', 'touchend', 'touchmove', 'mousedown', 'mouseup', 'mousemove'].forEach(evt => {
             panel.addEventListener(evt, (e) => e.stopPropagation());
         });
@@ -82,37 +80,54 @@ export class InGameEditor {
         content.id = 'pe-content';
         this.ui = {};
 
-        // 1. SECCIÓN ORBE (GEOMETRÍA)
-        content.appendChild(this.createGroup('Esfera & Material', [
-            { type: 'range', id: 'orbRadius', label: 'Radio', min: 0.1, max: 2, step: 0.1 },
-            { type: 'range', id: 'orbSeg', label: 'Polígonos', min: 4, max: 64, step: 1 },
-            { type: 'color', id: 'orbColor', label: 'Color Base' },
-            { type: 'color', id: 'orbEmissive', label: 'Emisivo' },
-            { type: 'select', id: 'orbBlend', label: 'Mezcla', options: ['Normal', 'Additive'] }
-        ]));
+        // GESTOR DE CAPAS
+        const layerGroup = document.createElement('div');
+        layerGroup.className = 'pe-group';
+        layerGroup.innerHTML = `<span class="pe-label">Capas de Partículas</span>`;
+        const layerCtrl = document.createElement('div');
+        layerCtrl.className = 'layer-ctrl';
+        
+        this.layerSelect = document.createElement('select');
+        this.layerSelect.className = 'layer-select';
+        this.layerSelect.onchange = () => {
+            this.currentLayerIndex = parseInt(this.layerSelect.value);
+            this.syncUI();
+        };
 
-        // 2. SECCIÓN LUZ
-        content.appendChild(this.createGroup('Luz Asociada', [
+        const btnAdd = document.createElement('button');
+        btnAdd.className = 'layer-btn add'; btnAdd.innerText = '+';
+        btnAdd.onclick = () => this.addLayer();
+
+        const btnDel = document.createElement('button');
+        btnDel.className = 'layer-btn del'; btnDel.innerText = '-';
+        btnDel.onclick = () => this.removeLayer();
+
+        layerCtrl.append(this.layerSelect, btnAdd, btnDel);
+        layerGroup.appendChild(layerCtrl);
+        content.appendChild(layerGroup);
+
+        // SECCIONES UI
+        content.appendChild(this.createGroup('Esfera & Luz', [
+            { type: 'range', id: 'orbRadius', label: 'Radio Orbe', min: 0.1, max: 2, step: 0.1 },
+            { type: 'color', id: 'orbColor', label: 'Color Orbe' },
+            { type: 'select', id: 'orbBlend', label: 'Mezcla Orbe', options: ['Normal', 'Additive'] },
             { type: 'color', id: 'lightColor', label: 'Color Luz' },
-            { type: 'range', id: 'lightInt', label: 'Intensidad', min: 0, max: 20, step: 0.1 },
-            { type: 'range', id: 'lightDist', label: 'Alcance', min: 0, max: 50, step: 1 },
-            { type: 'range', id: 'lightDecay', label: 'Decay', min: 0, max: 2, step: 0.1 }
+            { type: 'range', id: 'lightInt', label: 'Intensidad', min: 0, max: 20, step: 0.1 }
         ]));
 
-        // 3. SECCIÓN PARTÍCULAS
-        content.appendChild(this.createGroup('Partículas: Apariencia', [
-            { type: 'select', id: 'genType', label: 'Forma', options: ['glow','hardCircle','smoke'] },
+        content.appendChild(this.createGroup('Capa: Apariencia', [
+            { type: 'select', id: 'genType', label: 'Forma', options: ['glow','hardCircle','smoke','image'] },
             { type: 'color', id: 'genColor', label: 'Tinte' },
             { type: 'select', id: 'blendMode', label: 'Blending', options: ['add','normal'] },
             { type: 'file', id: 'imageSrc', label: 'Textura PNG' }
         ]));
 
-        content.appendChild(this.createGroup('Partículas: Emisión', [
+        content.appendChild(this.createGroup('Capa: Emisión', [
             { type: 'range', id: 'emissionRate', label: 'Cantidad/s', min: 1, max: 500, step: 1 },
             { type: 'range', id: 'spawnRadius', label: 'Radio Spawn', min: 0, max: 2, step: 0.1 }
         ]));
 
-        content.appendChild(this.createGroup('Partículas: Física', [
+        content.appendChild(this.createGroup('Capa: Física', [
             { type: 'range', id: 'speedVal', label: 'Velocidad', min: 0, max: 10, step: 0.1 },
             { type: 'range', id: 'speedRnd', label: 'Aleatorio', min: 0, max: 5, step: 0.1 },
             { type: 'range', id: 'gravityY', label: 'Gravedad Y', min: -10, max: 10, step: 0.1 },
@@ -120,7 +135,7 @@ export class InGameEditor {
             { type: 'range', id: 'lifeMax', label: 'Vida Max', min: 0.1, max: 5, step: 0.1 }
         ]));
 
-        content.appendChild(this.createGroup('Partículas: Evolución', [
+        content.appendChild(this.createGroup('Capa: Evolución', [
             { type: 'range', id: 'scaleStart', label: 'Escala Ini', min: 0, max: 3, step: 0.1 },
             { type: 'range', id: 'scaleEnd', label: 'Escala Fin', min: 0, max: 3, step: 0.1 },
             { type: 'range', id: 'alphaStart', label: 'Alpha Ini', min: 0, max: 1, step: 0.05 },
@@ -130,23 +145,19 @@ export class InGameEditor {
 
         panel.appendChild(content);
 
-        // Footer
         const footer = document.createElement('div');
         footer.className = 'pe-btn-bar';
         
         const btnReset = document.createElement('button');
-        btnReset.className = 'pe-btn pe-reset';
-        btnReset.innerText = 'RESET POS';
+        btnReset.className = 'pe-btn pe-reset'; btnReset.innerText = 'RESET POS';
         btnReset.onclick = () => this.resetOrbPosition();
 
         const btnSave = document.createElement('button');
-        btnSave.className = 'pe-btn pe-save';
-        btnSave.innerText = 'GUARDAR';
+        btnSave.className = 'pe-btn pe-save'; btnSave.innerText = 'GUARDAR';
         btnSave.onclick = () => this.exportJSON();
 
         const btnLoad = document.createElement('button');
-        btnLoad.className = 'pe-btn pe-load';
-        btnLoad.innerText = 'CARGAR';
+        btnLoad.className = 'pe-btn pe-load'; btnLoad.innerText = 'CARGAR';
         btnLoad.onclick = () => inpFile.click();
 
         const inpFile = document.createElement('input');
@@ -205,8 +216,17 @@ export class InGameEditor {
                     const f = e.target.files[0]; if(!f) return;
                     const r = new FileReader();
                     r.onload = (evt) => {
-                        this.updateValues('sourceType', 'image');
-                        this.updateValues('imageSrc', evt.target.result);
+                        this.orbs.forEach(orb => {
+                            const layer = orb.particles.layers[this.currentLayerIndex];
+                            if(layer) {
+                                layer.updateConfig({
+                                    sourceType: 'image',
+                                    genType: 'image',
+                                    imageSrc: evt.target.result
+                                });
+                            }
+                        });
+                        this.syncUI();
                     };
                     r.readAsDataURL(f);
                 };
@@ -217,39 +237,59 @@ export class InGameEditor {
         return group;
     }
 
-    toggleEditor() {
-        this.visible = !this.visible;
-        const panel = document.getElementById('pe-panel');
-        panel.style.display = this.visible ? 'flex' : 'none';
-
-        if (this.visible && this.orbs.length > 0) {
-            // AL ABRIR: Pausar IA del orbe y traerlo al frente
-            const orb = this.orbs[0];
-            orb.state = 'editor_mode'; // Modo especial para que no se mueva solo
-            this.resetOrbPosition();
-        } else {
-            // AL CERRAR: Restaurar
-            this.orbs.forEach(o => o.state = 'flying'); // O el estado que tuviera
-        }
+    refreshLayerList() {
+        if(this.orbs.length === 0) return;
+        const orb = this.orbs[0];
+        const layers = orb.particles.layers;
+        
+        this.layerSelect.innerHTML = '';
+        layers.forEach((l, i) => {
+            const opt = document.createElement('option');
+            opt.value = i;
+            const typeLabel = l.config.sourceType === 'image' ? 'PNG' : l.config.genType;
+            opt.innerText = `Capa ${i + 1} (${typeLabel})`;
+            this.layerSelect.appendChild(opt);
+        });
+        
+        if (this.currentLayerIndex >= layers.length) this.currentLayerIndex = layers.length - 1;
+        if (this.currentLayerIndex < 0 && layers.length > 0) this.currentLayerIndex = 0;
+        this.layerSelect.value = this.currentLayerIndex;
     }
 
-    resetOrbPosition() {
-        if(this.orbs.length === 0) return;
-        // Colocar orbe frente a la cámara
-        const targetPos = new THREE.Vector3(0, 0, -3).applyMatrix4(this.camera.matrixWorld);
-        this.orbs.forEach((o, i) => {
-            o.mesh.position.copy(targetPos);
-            o.mesh.position.x += i * 1.0; // Separarlos un poco si hay varios
-            o.velocity.set(0,0,0);
+    addLayer() {
+        this.orbs.forEach(orb => {
+            orb.particles.addLayer({
+                genType: 'glow', genColor: '#ff00ff', emissionRate: 10, speed: {value: 1, random: 0}
+            });
         });
+        this.currentLayerIndex = this.orbs[0].particles.layers.length - 1;
+        this.syncUI();
+    }
+
+    removeLayer() {
+        if(this.orbs[0].particles.layers.length <= 1) {
+            alert("Debe haber al menos una capa.");
+            return;
+        }
+        if(!confirm("¿Borrar capa actual?")) return;
+
+        this.orbs.forEach(orb => {
+            orb.particles.removeLayer(this.currentLayerIndex);
+        });
+        this.currentLayerIndex = Math.max(0, this.currentLayerIndex - 1);
+        this.syncUI();
     }
 
     syncUI() {
-        // Sincronizar UI con el primer orbe
+        if(this.orbs.length === 0) return;
         const orb = this.orbs[0];
-        const pCfg = orb.particles.config;
         const mesh = orb.mesh;
         const light = orb.light;
+
+        this.refreshLayerList();
+        
+        const layer = orb.particles.layers[this.currentLayerIndex];
+        const pCfg = layer ? layer.config : {};
 
         const setVal = (id, v) => {
             if(!this.ui[id]) return;
@@ -257,112 +297,201 @@ export class InGameEditor {
             if(this.ui[id].num) this.ui[id].num.value = v;
         };
 
-        // Orbe
         setVal('orbRadius', mesh.geometry.parameters.radius);
-        setVal('orbSeg', mesh.geometry.parameters.widthSegments);
         setVal('orbColor', '#' + mesh.material.color.getHexString());
-        if(mesh.material.emissive) setVal('orbEmissive', '#' + mesh.material.emissive.getHexString());
         setVal('orbBlend', mesh.material.blending === THREE.AdditiveBlending ? 'Additive' : 'Normal');
-
-        // Luz
         setVal('lightColor', '#' + light.color.getHexString());
         setVal('lightInt', light.intensity);
-        setVal('lightDist', light.distance);
-        setVal('lightDecay', light.decay);
 
-        // Partículas
-        setVal('genType', pCfg.genType);
-        setVal('genColor', pCfg.genColor);
-        setVal('blendMode', pCfg.blendMode || 'add');
-        setVal('emissionRate', pCfg.emissionRate);
-        setVal('spawnRadius', pCfg.spawnRadius);
-        setVal('speedVal', pCfg.speed.value);
-        setVal('speedRnd', pCfg.speed.random);
-        setVal('gravityY', pCfg.gravity.y);
-        setVal('lifeMin', pCfg.life.min);
-        setVal('lifeMax', pCfg.life.max);
-        setVal('scaleStart', pCfg.scale.start);
-        setVal('scaleEnd', pCfg.scale.end);
-        setVal('alphaStart', pCfg.alpha.start);
-        setVal('alphaEnd', pCfg.alpha.end);
-        setVal('globalOpacity', pCfg.globalOpacity);
+        if(layer) {
+            const visualType = pCfg.sourceType === 'image' ? 'image' : pCfg.genType;
+            setVal('genType', visualType);
+            setVal('genColor', pCfg.genColor);
+            setVal('blendMode', pCfg.blendMode || 'add');
+            setVal('emissionRate', pCfg.emissionRate);
+            setVal('spawnRadius', pCfg.spawnRadius);
+            setVal('speedVal', pCfg.speed.value);
+            setVal('speedRnd', pCfg.speed.random);
+            setVal('gravityY', pCfg.gravity.y);
+            setVal('lifeMin', pCfg.life.min);
+            setVal('lifeMax', pCfg.life.max);
+            setVal('scaleStart', pCfg.scale.start);
+            setVal('scaleEnd', pCfg.scale.end);
+            setVal('alphaStart', pCfg.alpha.start);
+            setVal('alphaEnd', pCfg.alpha.end);
+            setVal('globalOpacity', pCfg.globalOpacity);
+        }
     }
 
     updateValues(id, val) {
         this.orbs.forEach(orb => {
-            // --- ACTUALIZAR PARTÍCULAS ---
-            const updates = {};
-            if(id === 'speedVal') updates.speed = { value: val };
-            else if(id === 'speedRnd') updates.speed = { random: val };
-            else if(id === 'lifeMin') updates.life = { min: val };
-            else if(id === 'lifeMax') updates.life = { max: val };
-            else if(id === 'scaleStart') updates.scale = { start: val };
-            else if(id === 'scaleEnd') updates.scale = { end: val };
-            else if(id === 'alphaStart') updates.alpha = { start: val };
-            else if(id === 'alphaEnd') updates.alpha = { end: val };
-            else if(id === 'gravityY') updates.gravity = { y: val };
-            else updates[id] = val; // Genéricos (rate, radius, etc)
+            const layer = orb.particles.layers[this.currentLayerIndex];
+            if(layer) {
+                const updates = {};
+                
+                if(id === 'genType') {
+                    if(val === 'image') {
+                        updates.sourceType = 'image';
+                        updates.genType = 'image';
+                    } else {
+                        updates.sourceType = 'generator';
+                        updates.genType = val;
+                    }
+                }
+                else if(id === 'speedVal') updates.speed = { value: val };
+                else if(id === 'speedRnd') updates.speed = { random: val };
+                else if(id === 'lifeMin') updates.life = { min: val };
+                else if(id === 'lifeMax') updates.life = { max: val };
+                else if(id === 'scaleStart') updates.scale = { start: val };
+                else if(id === 'scaleEnd') updates.scale = { end: val };
+                else if(id === 'alphaStart') updates.alpha = { start: val };
+                else if(id === 'alphaEnd') updates.alpha = { end: val };
+                else if(id === 'gravityY') updates.gravity = { y: val };
+                else updates[id] = val;
 
-            // Mezclar configs anidados
-            const pc = orb.particles.config;
-            if(updates.speed) updates.speed = { ...pc.speed, ...updates.speed };
-            if(updates.life) updates.life = { ...pc.life, ...updates.life };
-            if(updates.scale) updates.scale = { ...pc.scale, ...updates.scale };
-            if(updates.alpha) updates.alpha = { ...pc.alpha, ...updates.alpha };
-            if(updates.gravity) updates.gravity = { ...pc.gravity, ...updates.gravity };
-            
-            // Si el ID pertenece a partículas, actualizar sistema
-            if(Object.keys(this.ui).some(k => k === id && !k.startsWith('orb') && !k.startsWith('light'))) {
-                orb.particles.updateConfig(updates);
+                const pc = layer.config;
+                if(updates.speed) updates.speed = { ...pc.speed, ...updates.speed };
+                if(updates.life) updates.life = { ...pc.life, ...updates.life };
+                if(updates.scale) updates.scale = { ...pc.scale, ...updates.scale };
+                if(updates.alpha) updates.alpha = { ...pc.alpha, ...updates.alpha };
+                if(updates.gravity) updates.gravity = { ...pc.gravity, ...updates.gravity };
+                
+                if(Object.keys(this.ui).some(k => k === id && !k.startsWith('orb') && !k.startsWith('light'))) {
+                    layer.updateConfig(updates);
+                }
             }
 
-            // --- ACTUALIZAR ORBE (GEOMETRÍA Y MATERIAL) ---
             if(id.startsWith('orb')) {
                 const m = orb.mesh;
-                if(id === 'orbRadius' || id === 'orbSeg') {
-                    // Regenerar geometría
-                    const r = id==='orbRadius'?val:m.geometry.parameters.radius;
-                    const s = id==='orbSeg'?val:m.geometry.parameters.widthSegments;
+                if(id === 'orbRadius') {
                     m.geometry.dispose();
-                    m.geometry = new THREE.SphereGeometry(r, s, s);
+                    m.geometry = new THREE.SphereGeometry(val, 32, 32);
                 }
                 if(id === 'orbColor') m.material.color.set(val);
-                if(id === 'orbEmissive') m.material.emissive.set(val);
                 if(id === 'orbBlend') {
                     m.material.blending = val === 'Additive' ? THREE.AdditiveBlending : THREE.NormalBlending;
-                    m.material.transparent = true;
                     m.material.needsUpdate = true;
                 }
             }
 
-            // --- ACTUALIZAR LUZ ---
             if(id.startsWith('light')) {
                 const l = orb.light;
                 if(id === 'lightColor') l.color.set(val);
                 if(id === 'lightInt') l.intensity = val;
-                if(id === 'lightDist') l.distance = val;
-                if(id === 'lightDecay') l.decay = val;
             }
         });
     }
 
-    // --- LOGICA DE ARRASTRE (RAYCASTER) ---
+    toggleEditor() {
+        this.visible = !this.visible;
+        document.getElementById('pe-panel').style.display = this.visible ? 'flex' : 'none';
+        if (this.visible && this.orbs.length > 0) {
+            const orb = this.orbs[0];
+            orb.state = 'editor_mode'; 
+            this.resetOrbPosition();
+            this.syncUI();
+        } else {
+            this.orbs.forEach(o => o.state = 'flying');
+        }
+    }
+
+    resetOrbPosition() {
+        if(this.orbs.length === 0) return;
+        const targetPos = new THREE.Vector3(0, 0, -3).applyMatrix4(this.camera.matrixWorld);
+        this.orbs.forEach((o, i) => {
+            o.mesh.position.copy(targetPos);
+            o.mesh.position.x += i * 1.5; 
+            o.velocity.set(0,0,0);
+        });
+    }
+
+    async exportJSON() {
+        if(this.orbs.length === 0) return;
+        const orb = this.orbs[0];
+        const layersConfig = orb.particles.layers.map(l => l.config);
+
+        const data = {
+            layers: layersConfig,
+            orb: {
+                radius: orb.mesh.geometry.parameters.radius,
+                color: '#' + orb.mesh.material.color.getHexString(),
+                blend: orb.mesh.material.blending === THREE.AdditiveBlending ? 'Additive' : 'Normal'
+            },
+            light: {
+                color: '#' + orb.light.color.getHexString(),
+                intensity: orb.light.intensity
+            }
+        };
+        
+        const json = JSON.stringify(data, null, 2);
+
+        // --- PREGUNTAR DÓNDE GUARDAR (CHROME/EDGE) ---
+        try {
+            if (window.showSaveFilePicker) {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: 'orb_design_layers.json',
+                    types: [{
+                        description: 'JSON Files',
+                        accept: { 'application/json': ['.json'] },
+                    }],
+                });
+                const writable = await handle.createWritable();
+                await writable.write(json);
+                await writable.close();
+            } else {
+                // FALLBACK CLÁSICO (Firefox, etc)
+                const blob = new Blob([json], {type: "application/json"});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = "orb_design_layers.json";
+                a.click();
+                URL.revokeObjectURL(url);
+            }
+        } catch (err) {
+            // Usuario canceló
+            if (err.name !== 'AbortError') console.error('Error al guardar:', err);
+        }
+    }
+
+    importJSON(e) {
+        const file = e.target.files[0]; if(!file) return;
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            try {
+                const data = JSON.parse(evt.target.result);
+                if(data.layers || data.particles) {
+                    this.orbs.forEach(o => o.particles.importConfig(data));
+                }
+                if(data.orb) {
+                    this.updateValues('orbRadius', data.orb.radius);
+                    this.updateValues('orbColor', data.orb.color);
+                    this.updateValues('orbBlend', data.orb.blend);
+                }
+                if(data.light) {
+                    this.updateValues('lightColor', data.light.color);
+                    this.updateValues('lightInt', data.light.intensity);
+                }
+                this.currentLayerIndex = 0;
+                this.syncUI();
+            } catch(err) { alert("Error JSON: " + err); }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+    }
+
     onMouseDown(e) {
         if(!this.visible) return;
         this.updateMouse(e);
         this.raycaster.setFromCamera(this.mouse, this.camera);
-        
-        // Comprobar si tocamos algún orbe
         const intersects = this.raycaster.intersectObjects(this.orbs.map(o => o.mesh));
         if(intersects.length > 0) {
             this.isDraggingOrb = true;
-            this.selectedOrb = intersects[0].object; // El mesh
-            // Preparamos plano de arrastre frente a la cámara
+            this.selectedOrb = intersects[0].object; 
             this.dragPlane.setFromNormalAndCoplanarPoint(
                 this.camera.getWorldDirection(new THREE.Vector3()),
                 this.selectedOrb.position
             );
-            // Bloquear controles de cámara (si OrbitControls estuviera activo, aquí no lo está pero por si acaso)
             e.preventDefault(); 
         }
     }
@@ -386,61 +515,5 @@ export class InGameEditor {
         const rect = this.renderer.domElement.getBoundingClientRect();
         this.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
         this.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-    }
-
-    exportJSON() {
-        if(this.orbs.length === 0) return;
-        // Guardamos config de partículas y del orbe
-        const orb = this.orbs[0];
-        const data = {
-            particles: orb.particles.config,
-            orb: {
-                radius: orb.mesh.geometry.parameters.radius,
-                segments: orb.mesh.geometry.parameters.widthSegments,
-                color: '#' + orb.mesh.material.color.getHexString(),
-                emissive: '#' + orb.mesh.material.emissive.getHexString(),
-                blend: orb.mesh.material.blending === THREE.AdditiveBlending ? 'Additive' : 'Normal'
-            },
-            light: {
-                color: '#' + orb.light.color.getHexString(),
-                intensity: orb.light.intensity,
-                distance: orb.light.distance,
-                decay: orb.light.decay
-            }
-        };
-        const json = JSON.stringify(data, null, 2);
-        const blob = new Blob([json], {type: "application/json"});
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = "orb_design.json"; a.click();
-    }
-
-    importJSON(e) {
-        const file = e.target.files[0]; if(!file) return;
-        const reader = new FileReader();
-        reader.onload = (evt) => {
-            try {
-                const data = JSON.parse(evt.target.result);
-                // Cargar valores (usando updateValues para que se aplique visualmente)
-                if(data.particles) this.orbs.forEach(o => o.particles.updateConfig(data.particles));
-                
-                if(data.orb) {
-                    this.updateValues('orbRadius', data.orb.radius);
-                    this.updateValues('orbSeg', data.orb.segments);
-                    this.updateValues('orbColor', data.orb.color);
-                    this.updateValues('orbEmissive', data.orb.emissive);
-                    this.updateValues('orbBlend', data.orb.blend);
-                }
-                if(data.light) {
-                    this.updateValues('lightColor', data.light.color);
-                    this.updateValues('lightInt', data.light.intensity);
-                    this.updateValues('lightDist', data.light.distance);
-                    this.updateValues('lightDecay', data.light.decay);
-                }
-                
-                this.syncUI(); // Refrescar sliders
-            } catch(err) { alert("Error JSON"); }
-        };
-        reader.readAsText(file);
-        e.target.value = '';
     }
 }

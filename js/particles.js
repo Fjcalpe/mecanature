@@ -1,27 +1,26 @@
 import * as THREE from 'three';
 
-const texLoader = new THREE.TextureLoader();
-
 // --- 1. GENERADOR DE TEXTURAS ---
-function createParticleTexture(type, colorHex) {
+function createParticleTexture(type) {
     const canvas = document.createElement('canvas');
     canvas.width = 64; canvas.height = 64;
     const ctx = canvas.getContext('2d');
-    const color = colorHex || '#ffffff';
+    
+    ctx.clearRect(0, 0, 64, 64);
 
     if (type === 'glow') {
         const g = ctx.createRadialGradient(32, 32, 4, 32, 32, 30);
-        g.addColorStop(0, color);
-        g.addColorStop(0.2, color); 
+        g.addColorStop(0, 'rgba(255,255,255,1)'); 
+        g.addColorStop(0.2, 'rgba(255,255,255,0.8)'); 
         g.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, 64, 64);
     } else if (type === 'hardCircle') {
-        ctx.fillStyle = color;
+        ctx.fillStyle = '#ffffff';
         ctx.beginPath(); ctx.arc(32, 32, 30, 0, Math.PI * 2); ctx.fill();
     } else if (type === 'smoke') {
         const g = ctx.createRadialGradient(32, 32, 10, 32, 32, 32);
-        g.addColorStop(0, color); 
+        g.addColorStop(0, 'rgba(255,255,255,1)'); 
         g.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, 64, 64);
@@ -32,253 +31,268 @@ function createParticleTexture(type, colorHex) {
     return texture;
 }
 
-// --- 2. PARTÍCULA 3D ---
-class Particle3D {
-    constructor(parentSystem) {
-        this.system = parentSystem;
-        this.mesh = new THREE.Sprite(this.system.material);
-        this.active = false;
-    }
-
-    spawn(position) {
-        const cfg = this.system.config;
-        this.active = true;
-        this.age = 0;
-        this.life = cfg.life.min + Math.random() * (cfg.life.max - cfg.life.min);
-        
-        // Usamos la posición interpolada que nos pasan
-        this.mesh.position.copy(position);
-        
-        const r = cfg.spawnRadius || 0.3;
-        const theta = Math.random() * Math.PI * 2;
-        const phi = Math.acos(2 * Math.random() - 1);
-        const dist = Math.random() * r;
-
-        this.mesh.position.x += dist * Math.sin(phi) * Math.cos(theta);
-        this.mesh.position.y += dist * Math.sin(phi) * Math.sin(theta);
-        this.mesh.position.z += dist * Math.cos(phi);
-
-        const baseSpd = cfg.speed.value || 1; 
-        const randSpd = cfg.speed.random || 0;
-        const spd = (baseSpd + Math.random() * randSpd); 
-
-        const vTheta = Math.random() * Math.PI * 2;
-        const vPhi = Math.acos(2 * Math.random() - 1);
-        
-        this.velocity = new THREE.Vector3(
-            Math.sin(vPhi) * Math.cos(vTheta) * spd,
-            Math.sin(vPhi) * Math.sin(vTheta) * spd,
-            Math.cos(vPhi) * spd
-        );
-
-        this.scaleStart = cfg.scale.start;
-        this.scaleEnd = cfg.scale.end;
-        
-        this.mesh.scale.setScalar(this.scaleStart);
-        this.mesh.material.opacity = cfg.alpha.start;
-        this.mesh.material.rotation = Math.random() * Math.PI * 2;
-
-        this.mesh.visible = true;
-        this.system.container.add(this.mesh);
-    }
-
-    update(dt) {
-        if (!this.active) return;
-        this.age += dt;
-        if (this.age >= this.life) {
-            this.active = false;
-            this.mesh.visible = false;
-            this.system.container.remove(this.mesh);
-            return;
-        }
-
-        const cfg = this.system.config;
-        const t = this.age / this.life;
-
-        this.velocity.y += cfg.gravity.y * dt;
-        this.mesh.position.addScaledVector(this.velocity, dt);
-
-        const currentScale = this.scaleStart * (1 - t) + this.scaleEnd * t;
-        this.mesh.scale.setScalar(currentScale);
-
-        const currentAlpha = (cfg.alpha.start * (1 - t) + cfg.alpha.end * t) * cfg.globalOpacity;
-        this.mesh.material.opacity = currentAlpha;
-    }
-}
-
-// --- 3. SISTEMA DE GESTIÓN ---
-export class ParticleSystem3D {
-    constructor(scene, config) {
-        this.scene = scene;
-        this.config = config || {
-            globalOpacity: 1,
-            emissionRate: 30,
-            life: { min: 0.5, max: 1.0 },
-            speed: { value: 1.5, random: 0.5 },
-            scale: { start: 0.8, end: 0 },
-            alpha: { start: 1, end: 0 },
-            gravity: { x: 0, y: 2 }, 
-            sourceType: 'generator', 
-            genType: 'glow',
-            genColor: '#00ffff'
+// --- 2. CLASE CAPA (LAYER) ---
+class ParticleLayer {
+    constructor(system, config) {
+        this.system = system;
+        this.config = {
+            id: Date.now() + Math.random(),
+            enabled: true,
+            genType: config.genType || 'glow',
+            genColor: config.genColor || '#ffffff',
+            blendMode: config.blendMode || 'add',
+            sourceType: config.sourceType || 'generator', 
+            imageSrc: config.imageSrc || null,
+            emissionRate: config.emissionRate || 20,
+            life: { min: config.life?.min ?? 0.5, max: config.life?.max ?? 1.0 },
+            speed: { value: config.speed?.value ?? 1, random: config.speed?.random ?? 0.5 },
+            scale: { start: config.scale?.start ?? 0.5, end: config.scale?.end ?? 0 },
+            alpha: { start: config.alpha?.start ?? 1, end: config.alpha?.end ?? 0 },
+            gravity: { x: config.gravity?.x ?? 0, y: config.gravity?.y ?? 0 },
+            globalOpacity: config.globalOpacity ?? 1,
+            spawnRadius: config.spawnRadius ?? 0.3
         };
 
         this.particles = [];
         this.pool = [];
-        this.container = new THREE.Group();
-        this.scene.add(this.container);
-
+        this.currentTextureSrc = null; 
+        
         this.material = new THREE.SpriteMaterial({
-            map: createParticleTexture('glow', '#ffffff'),
+            map: null, 
             transparent: true,
             opacity: 1,
-            depthWrite: false,          
-            blending: THREE.AdditiveBlending, 
-            toneMapped: false,          
-            fog: false                  
+            depthWrite: false,
+            blending: this.config.blendMode === 'normal' ? THREE.NormalBlending : THREE.AdditiveBlending,
+            color: new THREE.Color(this.config.genColor),
+            rotation: 0 // Rotación siempre 0
         });
 
+        this.refreshTexture(true); 
+
         this.spawnTimer = 0;
-        this.emitting = false;
-        this.emitterPosition = new THREE.Vector3();
-        this.previousEmitterPosition = new THREE.Vector3(); // Para interpolar
+        this.previousEmitterPosition = new THREE.Vector3();
         this.hasMoved = false;
     }
 
-    importPixiConfig(pixiData) {
-        const P2M = 0.015; 
-        const layer = Array.isArray(pixiData) ? pixiData[0] : (pixiData.layers ? pixiData.layers[0] : null);
-        if(!layer) return;
-
-        const c = layer.config;
-        const s = layer.source;
-        
-        const newConfig = {
-            sourceType: s.type || 'generator',
-            genType: s.genType || 'glow',
-            genColor: s.genColor || '#ffffff',
-            imageSrc: s.imageSrc, 
-            emissionRate: c.emissionRate || 20,
-            life: { min: c.life.min, max: c.life.max },
-            speed: { 
-                value: (c.speed.value || 0) * P2M, 
-                random: (c.speed.random || 0) * P2M 
-            },
-            scale: { start: c.scale.start * 0.5, end: c.scale.end * 0.5 },
-            alpha: { start: c.alpha.start, end: c.alpha.end },
-            gravity: { x: 0, y: (c.gravity.y || 0) * -P2M },
-            globalOpacity: c.globalOpacity || 1,
-            blendMode: c.blendMode || 'add' 
-        };
-
-        this.updateConfig(newConfig);
-    }
-
-    start() { this.emitting = true; }
-    stop() { this.emitting = false; }
-    
-    setPosition(pos) { 
-        if(!this.hasMoved) {
-            this.previousEmitterPosition.copy(pos);
-            this.hasMoved = true;
-        } else {
-            this.previousEmitterPosition.copy(this.emitterPosition);
-        }
-        this.emitterPosition.copy(pos); 
-    }
-
-    updateConfig(newConfig) {
-        this.config = { ...this.config, ...newConfig };
-        
-        // Aplicar Blending
-        if (this.config.blendMode === 'normal') {
-            this.material.blending = THREE.NormalBlending;
-        } else {
-            this.material.blending = THREE.AdditiveBlending; 
-        }
-
-        // Aplicar Textura (IMAGEN o GENERADA)
+    refreshTexture(force = false) {
         if (this.config.sourceType === 'image' && this.config.imageSrc) {
-            // Verificar si es Base64 o URL
+            if (!force && this.config.imageSrc === this.currentTextureSrc) return;
+
             const loader = new THREE.TextureLoader();
             loader.load(
                 this.config.imageSrc, 
                 (tex) => {
+                    if (this.material.map) this.material.map.dispose();
                     tex.colorSpace = THREE.SRGBColorSpace;
+                    tex.minFilter = THREE.LinearFilter;
+                    tex.magFilter = THREE.LinearFilter;
+                    tex.generateMipmaps = false; 
                     this.material.map = tex;
-                    
-                    // Si usamos imagen, generalmente queremos el color blanco base
-                    // para que el tinte funcione, o el color del tinte.
-                    if(newConfig.genColor) this.material.color.set(newConfig.genColor);
-                    else this.material.color.set(0xffffff);
-                    
-                    this.material.needsUpdate = true;
+                    this.material.rotation = 0; // Asegurar rotación 0 al cargar imagen
+                    this.material.needsUpdate = true; 
+                    this.currentTextureSrc = this.config.imageSrc;
                 },
                 undefined,
-                (err) => console.error("Error cargando textura partícula", err)
+                () => {
+                    this.config.sourceType = 'generator';
+                    this.refreshTexture(true);
+                }
             );
         } else {
-            // Generador
-            this.material.map = createParticleTexture(
-                this.config.genType || 'glow', 
-                '#ffffff' 
-            );
-            
-            if(newConfig.genColor) this.material.color.set(newConfig.genColor);
+            if (this.material.map) this.material.map.dispose();
+            this.material.map = createParticleTexture(this.config.genType);
+            this.material.rotation = 0; // Asegurar rotación 0
             this.material.needsUpdate = true;
+            this.currentTextureSrc = null;
         }
     }
 
-    update(dt) {
-        // Limitar dt para evitar saltos enormes si el navegador se cuelga
+    updateConfig(newConfig) {
+        const oldSourceType = this.config.sourceType;
+        const oldGenType = this.config.genType;
+        const oldImageSrc = this.config.imageSrc;
+        
+        this.config = { ...this.config, ...newConfig };
+
+        if (newConfig.blendMode) {
+            this.material.blending = this.config.blendMode === 'normal' ? THREE.NormalBlending : THREE.AdditiveBlending;
+            this.material.needsUpdate = true;
+        }
+        
+        if (newConfig.genColor) {
+            this.material.color.set(newConfig.genColor);
+        }
+
+        const sourceChanged = (this.config.sourceType !== oldSourceType);
+        const genTypeChanged = (this.config.genType !== oldGenType);
+        const imageChanged = (newConfig.imageSrc && newConfig.imageSrc !== oldImageSrc);
+
+        if (sourceChanged || genTypeChanged || imageChanged) {
+            this.refreshTexture();
+        }
+    }
+
+    update(dt, emitterPos, isEmitting) {
+        if(!this.config.enabled) return;
+
         const safeDt = Math.min(dt, 0.1);
 
-        if (this.emitting) {
-            const rate = this.config.emissionRate || 20;
+        if(!this.hasMoved) {
+            this.previousEmitterPosition.copy(emitterPos);
+            this.hasMoved = true;
+        }
+
+        if (isEmitting) {
+            const rate = this.config.emissionRate;
             const interval = 1.0 / rate;
             this.spawnTimer += safeDt;
-            
-            // --- INTERPOLACIÓN PARA SUAVIDAD ---
-            // En lugar de spawnear todas en el punto actual, las repartimos
-            // a lo largo del camino que hizo el orbe en este frame.
-            
+
             const count = Math.floor(this.spawnTimer / interval);
             if (count > 0) {
                 const startPos = this.previousEmitterPosition;
-                const endPos = this.emitterPosition;
+                const endPos = emitterPos;
                 
                 for (let i = 0; i < count; i++) {
                     this.spawnTimer -= interval;
-                    // Calcular posición intermedia (Lerp)
-                    // Si spawneamos 3 partículas, las ponemos al 33%, 66% y 100% del recorrido
                     const t = (i + 1) / count; 
                     const interpPos = new THREE.Vector3().lerpVectors(startPos, endPos, t);
                     this.spawnParticle(interpPos);
                 }
             }
         }
-        
-        // Actualizar posición previa para el siguiente frame
-        this.previousEmitterPosition.copy(this.emitterPosition);
 
-        // Actualizar existentes
+        this.previousEmitterPosition.copy(emitterPos);
+
         for (let i = this.particles.length - 1; i >= 0; i--) {
             const p = this.particles[i];
-            if (p.active) p.update(safeDt);
-            else { this.pool.push(p); this.particles.splice(i, 1); }
+            
+            p.age += safeDt;
+            if (p.age >= p.life) {
+                this.killParticle(i);
+                continue;
+            }
+
+            const t = p.age / p.life;
+
+            p.velocity.y += this.config.gravity.y * safeDt;
+            p.mesh.position.addScaledVector(p.velocity, safeDt);
+
+            const currentScale = this.config.scale.start * (1 - t) + this.config.scale.end * t;
+            p.mesh.scale.setScalar(currentScale);
+
+            const currentAlpha = (this.config.alpha.start * (1 - t) + this.config.alpha.end * t) * this.config.globalOpacity;
+            p.mesh.material.opacity = currentAlpha;
         }
     }
 
     spawnParticle(position) {
-        let p = this.pool.length > 0 ? this.pool.pop() : new Particle3D(this);
-        // Usar la posición interpolada si existe, sino la actual
-        p.spawn(position || this.emitterPosition);
+        let p;
+        if(this.pool.length > 0) {
+            p = this.pool.pop();
+            p.mesh.visible = true;
+        } else {
+            p = { mesh: new THREE.Sprite(this.material), velocity: new THREE.Vector3() };
+            this.system.container.add(p.mesh);
+        }
+
+        p.age = 0;
+        p.life = this.config.life.min + Math.random() * (this.config.life.max - this.config.life.min);
+        p.mesh.position.copy(position);
+
+        const r = this.config.spawnRadius;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const dist = Math.random() * r;
+        p.mesh.position.x += dist * Math.sin(phi) * Math.cos(theta);
+        p.mesh.position.y += dist * Math.sin(phi) * Math.sin(theta);
+        p.mesh.position.z += dist * Math.cos(phi);
+
+        const baseSpd = this.config.speed.value; 
+        const randSpd = this.config.speed.random;
+        const spd = (baseSpd + Math.random() * randSpd); 
+        const vTheta = Math.random() * Math.PI * 2;
+        const vPhi = Math.acos(2 * Math.random() - 1);
+        p.velocity.set(
+            Math.sin(vPhi) * Math.cos(vTheta) * spd,
+            Math.sin(vPhi) * Math.sin(vTheta) * spd,
+            Math.cos(vPhi) * spd
+        );
+
+        // CORRECCIÓN: Eliminada la rotación aleatoria para que los PNGs no giren
+        p.mesh.material.rotation = 0; 
+        
+        p.mesh.scale.setScalar(this.config.scale.start);
+        p.mesh.material = this.material; 
+
         this.particles.push(p);
     }
-    
+
+    killParticle(index) {
+        const p = this.particles[index];
+        p.mesh.visible = false;
+        this.pool.push(p);
+        this.particles.splice(index, 1);
+    }
+
     dispose() {
-        this.scene.remove(this.container);
+        this.particles.forEach(p => this.system.container.remove(p.mesh));
+        this.pool.forEach(p => this.system.container.remove(p.mesh));
         this.material.dispose();
-        this.material.map.dispose();
+        if(this.material.map) this.material.map.dispose();
+    }
+}
+
+// --- 3. SISTEMA PRINCIPAL ---
+export class ParticleSystem3D {
+    constructor(scene, initialConfig) {
+        this.scene = scene;
+        this.container = new THREE.Group();
+        this.scene.add(this.container);
+        
+        this.layers = [];
+        this.emitting = false;
+        this.emitterPosition = new THREE.Vector3();
+
+        if(initialConfig) {
+            this.addLayer(initialConfig);
+        }
+    }
+
+    addLayer(config) {
+        const layer = new ParticleLayer(this, config || {});
+        this.layers.push(layer);
+        return layer;
+    }
+
+    removeLayer(index) {
+        if(index >= 0 && index < this.layers.length) {
+            const layer = this.layers[index];
+            layer.dispose();
+            this.layers.splice(index, 1);
+        }
+    }
+
+    importConfig(data) {
+        while(this.layers.length > 0) this.removeLayer(0);
+        const layersData = data.layers || [data];
+        layersData.forEach(cfg => this.addLayer(cfg));
+    }
+
+    start() { this.emitting = true; }
+    stop() { this.emitting = false; }
+    
+    setPosition(pos) { 
+        this.emitterPosition.copy(pos); 
+    }
+
+    update(dt) {
+        this.layers.forEach(layer => {
+            layer.update(dt, this.emitterPosition, this.emitting);
+        });
+    }
+
+    dispose() {
+        this.layers.forEach(l => l.dispose());
+        this.scene.remove(this.container);
     }
 }
