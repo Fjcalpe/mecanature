@@ -2,14 +2,20 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { ParticleSystem3D } from './particles.js';
 
-// --- CONFIGURACIÓN DE FASES (AUDIO Y COLOR) ---
+// --- SONIDOS GLOBALES DEL NIVEL ---
+const sfxSelect = new Audio('./assets/sound/select.mp3');
+sfxSelect.volume = 1.0;
+
+const sfxAppear = new Audio('./assets/sound/orbes_aparecen.mp3');
+sfxAppear.volume = 1.0;
+
+// --- CONFIGURACIÓN DE FASES ---
 const ORB_PHASES = [
-    { color: 0xffa500, sound: './assets/sound/orbe_bass.mp3' }, // Fase 0: Naranja
-    { color: 0x00ff00, sound: './assets/sound/orbe_mid.mp3' },  // Fase 1: Verde
-    { color: 0x00ffff, sound: './assets/sound/orbe_high.mp3' }  // Fase 2: Azul
+    { color: 0xffa500, sound: './assets/sound/orbe_bass.mp3' }, 
+    { color: 0x00ff00, sound: './assets/sound/orbe_mid.mp3' },  
+    { color: 0x00ffff, sound: './assets/sound/orbe_high.mp3' }  
 ];
 
-// Configuración de partículas original
 const DEFAULT_ORB_CONFIG = {
   "layers": [
     { "id": 1, "enabled": true, "genType": "image", "genColor": "#ffffff", "blendMode": "add", "sourceType": "image", "imageSrc": "./assets/textures/particle.png", "emissionRate": 230, "life": { "min": 0.7, "max": 4.1 }, "speed": { "value": 0.5, "random": 0 }, "scale": { "start": 0.2, "end": 0 }, "alpha": { "start": 1, "end": 0.35 }, "gravity": { "x": 0, "y": 0 }, "globalOpacity": 1, "spawnRadius": 0.2 },
@@ -20,20 +26,12 @@ const DEFAULT_ORB_CONFIG = {
 };
 
 export const levelState = {
-    collisionMeshes: [], 
-    platformMesh: null, 
-    grassEmitterMeshes: [],
-    doorsCenter: new THREE.Vector3(), 
-    doorActions: [], 
-    sceneMixer: null,
-    mapBoundingBox: new THREE.Box3(), 
-    orbs: [],
-    bgMesh: null, 
-    parametricMesh: null, 
-    levelMesh: null,
+    collisionMeshes: [], platformMesh: null, grassEmitterMeshes: [],
+    doorsCenter: new THREE.Vector3(), doorActions: [], sceneMixer: null,
+    mapBoundingBox: new THREE.Box3(), orbs: [], bgMesh: null, 
+    parametricMesh: null, levelMesh: null,
     grassSource: { geometry: null, material: null, scale: new THREE.Vector3(1,1,1) },
-    grassMaterialUniforms: { time: { value: 0 } }, 
-    grassParams: { count: 2000 }
+    grassMaterialUniforms: { time: { value: 0 } }, grassParams: { count: 2000 }
 };
 
 class OrbLogic {
@@ -50,7 +48,6 @@ class OrbLogic {
         this.startCinematicPos = new THREE.Vector3();
         this.cinematicTargetPos = new THREE.Vector3();
 
-        // --- NUEVO: Configuración de Fase (Color y Audio) ---
         const config = ORB_PHASES[this.id];
         this.mesh.material.color.setHex(config.color);
         this.light.color.setHex(config.color);
@@ -58,7 +55,7 @@ class OrbLogic {
         this.audio = new Audio(config.sound);
         this.audio.loop = true;
         this.audio.volume = 0;
-        this.audioStarted = false;
+        this.audioStarted = false; // Empezará false hasta que lo activemos
 
         if(ParticleSystem3D) {
             this.particles = new ParticleSystem3D(scene);
@@ -70,7 +67,6 @@ class OrbLogic {
     spawnStacked(basePos, playerPos) {
         this.state = 'cinematic_stack';
         this.collected = false;
-        // Restauramos color original de la fase
         const config = ORB_PHASES[this.id];
         this.mesh.material.color.setHex(config.color); 
         this.light.color.setHex(config.color);
@@ -123,7 +119,7 @@ class OrbLogic {
             this.particles.update(dt);
         }
 
-        // --- NUEVO: Actualización de Volumen ---
+        // Solo actualizamos volumen si el audio ha sido iniciado oficialmente
         if (this.audioStarted) {
             const dist = this.mesh.position.distanceTo(playerPos);
             const maxRadius = 15; 
@@ -171,25 +167,25 @@ class OrbLogic {
             if(this.mesh.position.distanceTo(this.target) < 2.0) this.pickRandomTarget(levelState.mapBoundingBox);
             this.mesh.position.y = Math.max(1, Math.min(4.5, this.mesh.position.y));
             
-            // --- NUEVO: Lógica de Recogida Secuencial ---
-            // Solo se recoge si es el orbe que toca (currentPhase)
             if(this.id === currentPhase && playerPos.distanceTo(this.mesh.position) < 1.5) {
                 this.state = 'following';
                 this.collected = true;
-                return true; // Notificamos que se recogió
+                
+                const soundClone = sfxSelect.cloneNode();
+                soundClone.volume = 1.0;
+                soundClone.play().catch(e => console.warn("Error sonido select:", e));
+                
+                return true; 
             }
         }
         return false;
     }
 }
 
-// Actualizado para aceptar currentPhase y devolver si hubo cambio
 export function updateOrbsLogic(dt, time, playerPos, camPos, cinematicTime, currentPhase) {
     let phaseChanged = false;
     levelState.orbs.forEach(orb => {
-        if(orb.update(dt, time, playerPos, camPos, cinematicTime, currentPhase)) {
-            phaseChanged = true;
-        }
+        if(orb.update(dt, time, playerPos, camPos, cinematicTime, currentPhase)) phaseChanged = true;
     });
     return phaseChanged;
 }
@@ -206,6 +202,34 @@ export function updateAllOrbParticles(pixiConfig) {
     levelState.orbs.forEach(orb => {
         if(orb.particles) orb.particles.importConfig(pixiConfig);
     });
+}
+
+// --- FUNCIONES DE CONTROL DE AUDIO ---
+
+export function playOrbAppearSound() {
+    sfxAppear.play().catch(e => console.warn("Error audio orbes_aparecen:", e));
+}
+
+// Nueva función que inicia REALMENTE las melodías
+export function startOrbMelodies() {
+    levelState.orbs.forEach(orb => {
+        if(orb.audio) {
+            orb.audio.play().catch(e => console.warn("Error play orb melody:", e));
+            orb.audioStarted = true; // A partir de aquí, el update calculará volumen
+        }
+    });
+}
+
+export function unlockLevelAudio() {
+    // "Calentamos" los SFX puntuales
+    const muteAndPlay = (audio) => {
+        audio.play().then(() => {
+            audio.pause();
+            audio.currentTime = 0;
+        }).catch(() => {});
+    };
+    muteAndPlay(sfxSelect);
+    muteAndPlay(sfxAppear);
 }
 
 export function loadLevel(scene, loadingManager, levelFile) {
@@ -263,7 +287,6 @@ export function loadLevel(scene, loadingManager, levelFile) {
         });
 
         for(let i=0; i<3; i++) {
-            // Usamos colores provisionales, luego OrbLogic pone los definitivos
             const mesh = new THREE.Mesh(
                 new THREE.SphereGeometry(DEFAULT_ORB_CONFIG.orb.radius, 16, 16), 
                 new THREE.MeshStandardMaterial({ 
@@ -282,11 +305,7 @@ export function loadLevel(scene, loadingManager, levelFile) {
             mesh.position.set(0, -9999, 0); 
         }
 
-        if (levelState.grassSource.geometry) {
-            generateInstancedGrass(scene);
-        } else {
-            console.warn("No se encontró el objeto 'hierba_b' para clonar.");
-        }
+        if (levelState.grassSource.geometry) generateInstancedGrass(scene);
     });
 }
 
@@ -296,50 +315,25 @@ export function unloadCurrentLevel(scene) {
         levelState.parametricMesh.geometry.dispose(); 
         levelState.parametricMesh = null; 
     }
-    
     levelState.orbs.forEach(orb => { 
         if(orb.particles) orb.particles.dispose(); 
-        scene.remove(orb.mesh); 
-        orb.mesh.geometry.dispose(); 
-        orb.mesh.material.dispose(); 
+        scene.remove(orb.mesh); orb.mesh.geometry.dispose(); orb.mesh.material.dispose(); 
     });
     levelState.orbs = [];
-
     if (levelState.levelMesh) { 
-        levelState.levelMesh.traverse((c) => { 
-            if (c.isMesh) { 
-                c.geometry.dispose(); 
-                if(c.material.map) c.material.map.dispose(); 
-                c.material.dispose(); 
-            } 
-        }); 
-        scene.remove(levelState.levelMesh); 
-        levelState.levelMesh = null; 
+        scene.remove(levelState.levelMesh); levelState.levelMesh = null; 
     }
-    
-    levelState.collisionMeshes = []; 
-    levelState.grassEmitterMeshes = []; 
-    levelState.doorActions = []; 
-    levelState.platformMesh = null; 
-    levelState.sceneMixer = null; 
-    levelState.mapBoundingBox.makeEmpty();
+    levelState.collisionMeshes = []; levelState.grassEmitterMeshes = []; levelState.doorActions = []; 
+    levelState.platformMesh = null; levelState.sceneMixer = null; levelState.mapBoundingBox.makeEmpty();
 }
 
 function modifyMaterialForWind(material) {
     if(material.userData && material.userData.isWindy) return material;
-
     const newMat = material.clone();
     newMat.onBeforeCompile = (shader) => {
         shader.uniforms.time = levelState.grassMaterialUniforms.time;
-        
-        shader.vertexShader = shader.vertexShader.replace(
-            '#include <common>',
-            `#include <common>
-            uniform float time;`
-        );
-        
-        const shaderLogic = `
-            #include <begin_vertex>
+        shader.vertexShader = shader.vertexShader.replace('#include <common>', `#include <common>\nuniform float time;`);
+        const shaderLogic = `#include <begin_vertex>
             float h = max(0.0, transformed.y); 
             float worldX = instanceMatrix[3][0] + transformed.x; 
             float worldZ = instanceMatrix[3][2] + transformed.z; 
@@ -348,45 +342,27 @@ function modifyMaterialForWind(material) {
             vec3 localWindDir = normalize(vec3(instanceMatrix[0].x, instanceMatrix[1].x, instanceMatrix[2].x)); 
             transformed += localWindDir * bend; 
             vec3 localCrossDir = normalize(vec3(instanceMatrix[0].z, instanceMatrix[1].z, instanceMatrix[2].z)); 
-            transformed += localCrossDir * bend * 0.2;
-        `;
-        
+            transformed += localCrossDir * bend * 0.2;`;
         shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', shaderLogic);
     };
     newMat.customProgramCacheKey = () => 'windyGrassInverted';
-    newMat.userData.isWindy = true; 
-    return newMat;
+    newMat.userData.isWindy = true; return newMat;
 }
 
 export function generateInstancedGrass(scene) {
-    if (levelState.parametricMesh) { 
-        scene.remove(levelState.parametricMesh); 
-        levelState.parametricMesh.dispose(); 
-        levelState.parametricMesh = null; 
-    }
-
+    if (levelState.parametricMesh) { scene.remove(levelState.parametricMesh); levelState.parametricMesh.dispose(); levelState.parametricMesh = null; }
     if (!levelState.grassSource.geometry || !levelState.grassSource.material) return;
-    if (levelState.grassParams.count === 0) return;
-    if (levelState.grassEmitterMeshes.length === 0) return;
+    if (levelState.grassParams.count === 0 || levelState.grassEmitterMeshes.length === 0) return;
 
-    if (levelState.mapBoundingBox.isEmpty()) { 
-        levelState.mapBoundingBox.min.set(-200, -50, -200); 
-        levelState.mapBoundingBox.max.set(200, 50, 200); 
-    }
+    if (levelState.mapBoundingBox.isEmpty()) { levelState.mapBoundingBox.min.set(-200, -50, -200); levelState.mapBoundingBox.max.set(200, 50, 200); }
 
     const count = levelState.grassParams.count;
     const windMaterial = modifyMaterialForWind(levelState.grassSource.material);
-    
-    const depthMat = new THREE.MeshDepthMaterial({
-        depthPacking: THREE.RGBADepthPacking
-    });
-
+    const depthMat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
     depthMat.onBeforeCompile = (shader) => {
         shader.uniforms.time = levelState.grassMaterialUniforms.time;
         shader.vertexShader = `uniform float time;\n` + shader.vertexShader;
-        
-        const shaderLogic = `
-            #include <begin_vertex>
+        const shaderLogic = `#include <begin_vertex>
             float h = max(0.0, transformed.y); 
             float worldX = instanceMatrix[3][0] + transformed.x; 
             float worldZ = instanceMatrix[3][2] + transformed.z; 
@@ -395,32 +371,19 @@ export function generateInstancedGrass(scene) {
             vec3 localWindDir = normalize(vec3(instanceMatrix[0].x, instanceMatrix[1].x, instanceMatrix[2].x)); 
             transformed += localWindDir * bend; 
             vec3 localCrossDir = normalize(vec3(instanceMatrix[0].z, instanceMatrix[1].z, instanceMatrix[2].z)); 
-            transformed += localCrossDir * bend * 0.2;
-        `;
+            transformed += localCrossDir * bend * 0.2;`;
         shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', shaderLogic);
     };
 
     levelState.parametricMesh = new THREE.InstancedMesh(levelState.grassSource.geometry, windMaterial, count);
-    levelState.parametricMesh.castShadow = true; 
-    levelState.parametricMesh.receiveShadow = true; 
-    levelState.parametricMesh.frustumCulled = false; 
-    
+    levelState.parametricMesh.castShadow = true; levelState.parametricMesh.receiveShadow = true; levelState.parametricMesh.frustumCulled = false; 
     levelState.parametricMesh.customDepthMaterial = depthMat;
 
-    const dummy = new THREE.Object3D(); 
-    const localRaycaster = new THREE.Raycaster(); 
-    localRaycaster.far = 100.0; 
-    const localDown = new THREE.Vector3(0, -1, 0);
-    
-    let placed = 0; 
-    let attempts = 0; 
-    const maxAttempts = count * 5; 
-    
+    const dummy = new THREE.Object3D(); const localRaycaster = new THREE.Raycaster(); localRaycaster.far = 100.0; const localDown = new THREE.Vector3(0, -1, 0);
+    let placed = 0; let attempts = 0; const maxAttempts = count * 5; 
     const width = levelState.mapBoundingBox.max.x - levelState.mapBoundingBox.min.x;
     const depth = levelState.mapBoundingBox.max.z - levelState.mapBoundingBox.min.z;
-    const heightMax = levelState.mapBoundingBox.max.y + 20; 
-    const _tempVec3 = new THREE.Vector3();
-
+    const heightMax = levelState.mapBoundingBox.max.y + 20; const _tempVec3 = new THREE.Vector3();
     levelState.grassEmitterMeshes.forEach(m => m.visible = true);
 
     while(placed < count && attempts < maxAttempts) {
@@ -428,38 +391,17 @@ export function generateInstancedGrass(scene) {
         const x = levelState.mapBoundingBox.min.x + Math.random() * width; 
         const z = levelState.mapBoundingBox.min.z + Math.random() * depth; 
         _tempVec3.set(x, heightMax, z);
-        
         localRaycaster.set(_tempVec3, localDown); 
         const hits = localRaycaster.intersectObjects(levelState.grassEmitterMeshes, true);
-        
         if (hits.length === 0) continue; 
-        const hit = hits[0]; 
-        if (hit.face && hit.face.normal.y < 0.6) continue;
-
-        dummy.position.set(x, hit.point.y, z); 
-        dummy.rotation.set(0, Math.random() * Math.PI * 2, 0);
-        
+        const hit = hits[0]; if (hit.face && hit.face.normal.y < 0.6) continue;
+        dummy.position.set(x, hit.point.y, z); dummy.rotation.set(0, Math.random() * Math.PI * 2, 0);
         const randomScale = 0.6 + Math.random() * 0.7;
-        dummy.scale.set(
-            levelState.grassSource.scale.x * randomScale, 
-            levelState.grassSource.scale.y * randomScale * (0.8 + Math.random()*0.4), 
-            levelState.grassSource.scale.z * randomScale
-        );
-        
-        dummy.updateMatrix(); 
-        levelState.parametricMesh.setMatrixAt(placed, dummy.matrix); 
-        placed++;
+        dummy.scale.set(levelState.grassSource.scale.x * randomScale, levelState.grassSource.scale.y * randomScale * (0.8 + Math.random()*0.4), levelState.grassSource.scale.z * randomScale);
+        dummy.updateMatrix(); levelState.parametricMesh.setMatrixAt(placed, dummy.matrix); placed++;
     }
-
     levelState.grassEmitterMeshes.forEach(m => m.visible = false);
-
-    for(let i = placed; i < count; i++) { 
-        dummy.position.set(0, -99999, 0); 
-        dummy.updateMatrix(); 
-        levelState.parametricMesh.setMatrixAt(i, dummy.matrix); 
-    }
-
-    levelState.parametricMesh.instanceMatrix.needsUpdate = true; 
-    scene.add(levelState.parametricMesh);
+    for(let i = placed; i < count; i++) { dummy.position.set(0, -99999, 0); dummy.updateMatrix(); levelState.parametricMesh.setMatrixAt(i, dummy.matrix); }
+    levelState.parametricMesh.instanceMatrix.needsUpdate = true; scene.add(levelState.parametricMesh);
     console.log(`Hierba generada: ${placed} instancias.`);
 }

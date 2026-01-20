@@ -111,63 +111,6 @@ export function initUI(callbacks) {
             onGrassChange(val);
         });
     }
-
-    // --- PARTICLE MENU LOGIC ---
-    const menu = document.getElementById('particle-menu');
-    const btnOpen = document.getElementById('btn-open-particles');
-    const btnClose = document.getElementById('btn-close-particles');
-    const presetList = document.getElementById('preset-list');
-    const uploadInput = document.getElementById('particle-upload');
-
-    const toggleMenu = () => {
-        const isHidden = menu.style.display === 'none' || menu.style.display === '';
-        menu.style.display = isHidden ? 'flex' : 'none';
-        btnOpen.style.display = isHidden ? 'none' : 'block';
-        if(isHidden) loadPresets();
-    };
-
-    const loadPresets = () => {
-        presetList.innerHTML = '';
-        let found = false;
-        for(let i=0; i<localStorage.length; i++) {
-            const k = localStorage.key(i);
-            if(k.startsWith('preset_')) {
-                const name = k.replace('preset_', '');
-                const div = document.createElement('div');
-                div.className = 'preset-item';
-                div.innerText = name;
-                div.onclick = () => {
-                    try {
-                        const data = JSON.parse(localStorage.getItem(k));
-                        window.dispatchEvent(new CustomEvent('loadParticles', { detail: data.layers || data }));
-                        toggleMenu();
-                    } catch(e) { console.error(e); }
-                };
-                presetList.appendChild(div);
-                found = true;
-            }
-        }
-        if(!found) presetList.innerHTML = '<div style="font-size:10px; color:#666; font-style:italic">Sin presets guardados.</div>';
-    };
-
-    if(btnOpen) btnOpen.onclick = toggleMenu;
-    if(btnClose) btnClose.onclick = toggleMenu;
-
-    if(uploadInput) {
-        uploadInput.addEventListener('change', (e) => {
-            const f = e.target.files[0];
-            if(!f) return;
-            const r = new FileReader();
-            r.onload = (evt) => {
-                try {
-                    const data = JSON.parse(evt.target.result);
-                    window.dispatchEvent(new CustomEvent('loadParticles', { detail: data.layers || data }));
-                    toggleMenu();
-                } catch(err) { alert("JSON Inválido"); }
-            };
-            r.readAsText(f);
-        });
-    }
 }
 
 export const fpsDisplay = document.getElementById('fps-display');

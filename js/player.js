@@ -1,6 +1,22 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+// --- SISTEMA DE AUDIO DE PASOS ---
+const audioSteps = {
+    grass: new Audio('./assets/sound/run_grass.mp3'),
+    stone: new Audio('./assets/sound/run_seco.mp3'),
+};
+audioSteps.grass.loop = true;
+audioSteps.stone.loop = true;
+audioSteps.grass.volume = 0.5;
+audioSteps.stone.volume = 0.8; // Subido volumen piedra para que se note más
+
+// Desbloqueo de audio inicial
+export function unlockPlayerAudio() {
+    audioSteps.grass.play().then(() => audioSteps.grass.pause()).catch(() => {});
+    audioSteps.stone.play().then(() => audioSteps.stone.pause()).catch(() => {});
+}
+
 export const playerState = {
     container: null,
     mixer: null,
@@ -9,7 +25,8 @@ export const playerState = {
     isGrounded: false,
     landingCooldown: 0,
     isMoving: false,
-    speed: 0
+    speed: 0,
+    currentSurface: 'grass'
 };
 
 const keyStates = { w: false, a: false, s: false, d: false };
@@ -21,7 +38,6 @@ const projectiles = [];
 const projectileGeo = new THREE.BoxGeometry(0.1, 0.1, 0.8);
 const projectileMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
 
-// Input Listeners
 window.addEventListener('keydown', (e) => { 
     if(e.code==='KeyW') keyStates.w = true; 
     if(e.code==='KeyS') keyStates.s = true; 
@@ -39,13 +55,7 @@ window.addEventListener('keyup', (e) => {
 
 export function loadPlayer(scene, loadingManager) {
     const loader = new GLTFLoader(loadingManager);
-    
-    // ---------------------------------------------------------
-    // CORRECCIÓN AQUÍ: Quitamos "/character/" de la ruta.
-    // Ahora busca en assets/models/GIRLrun.gltf directamente.
-    // ---------------------------------------------------------
     loader.load('./assets/models/GIRLrun.gltf', (gltf) => { 
-        
         const rawMesh = gltf.scene;
         rawMesh.scale.set(0.7, 0.7, 0.7);
         
@@ -75,6 +85,8 @@ export function jump() {
     if (playerState.isGrounded) {
         playerState.velocityY = jumpStrength;
         playerState.isGrounded = false;
+        audioSteps.grass.pause();
+        audioSteps.stone.pause();
     }
 }
 
@@ -94,7 +106,6 @@ export function shoot(scene) {
 export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCinematic) {
     if (!playerState.container) return;
 
-    // 1. Projectiles
     for (let i = projectiles.length - 1; i >= 0; i--) { 
         const p = projectiles[i]; 
         p.position.addScaledVector(p.userData.velocity, dt); 
@@ -106,24 +117,17 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
     }
 
     if (isCinematic) {
-        playerState.speed = 0;
-        playerState.isMoving = false;
-        if (playerState.mixer) {
-            playerState.mixer.timeScale = 0;
-            playerState.mixer.update(dt);
-        }
+        playerState.speed = 0; playerState.isMoving = false;
+        if (playerState.mixer) { playerState.mixer.timeScale = 0; playerState.mixer.update(dt); }
+        audioSteps.grass.pause(); audioSteps.stone.pause();
         return;
     }
 
-    // 2. Input
     if (playerState.landingCooldown > 0) playerState.landingCooldown -= dt;
     
-    let inputX = joystickVector.x;
-    let inputY = joystickVector.y;
-    if (keyStates.w) inputY -= 1;
-    if (keyStates.s) inputY += 1;
-    if (keyStates.a) inputX -= 1;
-    if (keyStates.d) inputX += 1;
+    let inputX = joystickVector.x; let inputY = joystickVector.y;
+    if (keyStates.w) inputY -= 1; if (keyStates.s) inputY += 1;
+    if (keyStates.a) inputX -= 1; if (keyStates.d) inputX += 1;
 
     moveDirection.set(inputX, 0, inputY);
     const len = moveDirection.length();
@@ -136,20 +140,15 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
         if (playerState.landingCooldown <= 0) playerState.speed = 0;
     }
 
-    // 3. Movement
     if (playerState.isMoving) {
         const _tempVec3 = new THREE.Vector3();
         const _tempVec3_2 = new THREE.Vector3();
         
-        camera.getWorldDirection(_tempVec3); 
-        _tempVec3.y = 0; 
-        _tempVec3.normalize(); 
-        
+        camera.getWorldDirection(_tempVec3); _tempVec3.y = 0; _tempVec3.normalize(); 
         _tempVec3_2.crossVectors(new THREE.Vector3(0, 1, 0), _tempVec3).normalize(); 
         
         const finalDir = _tempVec3.clone().multiplyScalar(-moveDirection.z).addScaledVector(_tempVec3_2, -moveDirection.x).normalize();
         
-        // Wall Check
         const raycaster = new THREE.Raycaster();
         const origin = playerState.container.position.clone();
         origin.y += 0.1;
@@ -165,11 +164,11 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
         playerState.container.quaternion.slerp(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(finalDir.x, finalDir.z)), 10 * dt);
     }
 
-    // 4. Gravity & Floor
     playerState.velocityY += gravity * dt;
     const propY = playerState.container.position.y + playerState.velocityY * dt;
     
-    const floorY = getPlayerHeight(playerState.container.position, playerState.container.position.y, collisionMeshes);
+    const floorInfo = getFloorInfo(playerState.container.position, playerState.container.position.y, collisionMeshes);
+    const floorY = floorInfo.y;
     const distToFloor = playerState.container.position.y - floorY;
 
     if (floorY > -900) {
@@ -186,6 +185,18 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
             playerState.container.position.y = propY;
             playerState.isGrounded = false;
         }
+
+        // --- DETECCIÓN DE SUPERFICIE MEJORADA ---
+        if (playerState.isGrounded && floorInfo.object) {
+            const name = floorInfo.object.name.toLowerCase();
+            // Comprobamos el nombre específico que pediste
+            if (name.includes("consola_mirador") || name.includes("plataforma")) {
+                playerState.currentSurface = 'stone';
+            } else {
+                playerState.currentSurface = 'grass';
+            }
+        }
+
     } else {
         playerState.container.position.y = propY;
         playerState.isGrounded = false;
@@ -195,16 +206,34 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
         playerState.mixer.timeScale = (playerState.isGrounded && playerState.isMoving) ? playerState.speed / maxMoveSpeed : 0;
         playerState.mixer.update(dt);
     }
+
+    handleFootsteps();
 }
 
-function getPlayerHeight(pos, currentY, meshes) {
-    if(playerState.velocityY > 0) return -999;
+function handleFootsteps() {
+    if (playerState.isGrounded && playerState.isMoving && playerState.speed > 0.5) {
+        if (playerState.currentSurface === 'stone') {
+            if (audioSteps.grass.paused === false) audioSteps.grass.pause(); 
+            if (audioSteps.stone.paused) audioSteps.stone.play().catch(()=>{}); 
+        } else {
+            if (audioSteps.stone.paused === false) audioSteps.stone.pause(); 
+            if (audioSteps.grass.paused) audioSteps.grass.play().catch(()=>{}); 
+        }
+    } else {
+        audioSteps.grass.pause();
+        audioSteps.stone.pause();
+    }
+}
+
+function getFloorInfo(pos, currentY, meshes) {
+    if(playerState.velocityY > 0) return { y: -999, object: null };
     const origin = pos.clone();
     origin.y += 1.5;
     const raycaster = new THREE.Raycaster(origin, new THREE.Vector3(0, -1, 0));
     raycaster.far = 10.0;
     const hits = raycaster.intersectObjects(meshes, true);
-    if (hits.length > 0) return hits[0].point.y;
-    if (playerState.isGrounded && currentY > -100) return currentY;
-    return -999;
+    
+    if (hits.length > 0) return { y: hits[0].point.y, object: hits[0].object };
+    if (playerState.isGrounded && currentY > -100) return { y: currentY, object: null };
+    return { y: -999, object: null };
 }
