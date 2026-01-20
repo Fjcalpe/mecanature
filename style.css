@@ -47,23 +47,6 @@ body.cinematic-mode .ui-element { opacity: 0; pointer-events: none; }
 #settings-ui label { font-weight: bold; display: flex; justify-content: space-between; }
 input[type=range] { width: 100%; cursor: pointer; }
 
-/* --- MENÚ DE PARTÍCULAS --- */
-#particle-menu {
-    position: absolute; top: 10px; left: 180px; 
-    background: rgba(0,0,0,0.8); padding: 10px; border-radius: 8px; border: 1px solid #444;
-    color: white; z-index: 200; display: none; flex-direction: column; gap: 8px; width: 200px;
-}
-#btn-open-particles {
-    position: absolute; top: 10px; left: 180px;
-    background: rgba(0,0,0,0.6); padding: 5px 10px; border-radius: 4px; color: cyan;
-    font-family: monospace; cursor: pointer; border: 1px solid cyan; z-index: 200; display: block;
-}
-.pm-title { font-size:12px; color:#00bcd4; border-bottom:1px solid #444; padding-bottom:4px; }
-.pm-upload { font-size:11px; color:#aaa; margin-top:5px; cursor:pointer; }
-#btn-close-particles { background:#444; border:none; color:white; padding:4px; margin-top:5px; cursor:pointer; }
-.preset-item { background: #333; padding: 5px; cursor: pointer; font-size: 12px; border: 1px solid #555; margin-bottom: 2px; }
-.preset-item:hover { background: #00bcd4; color: black; }
-
 /* --- CONTROLES MÓVIL --- */
 #joystick-container {
     position: absolute; bottom: 30px; left: 30px;
