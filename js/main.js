@@ -15,7 +15,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.toneMapping = THREE.ACESFilmicToneMapping; 
 renderer.toneMappingExposure = 0.5;
-renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.outputColorSpace = THREE.SRGBColorSpace; // ¡CRUCIAL PARA EL COLOR!
 renderer.shadowMap.enabled = true; 
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
@@ -44,7 +44,7 @@ sunLight.shadow.normalBias = 0.05;
 scene.add(sunLight); scene.add(sunLight.target); 
 scene.add(new THREE.HemisphereLight(0xffd580, 0x222233, 0.5));
 
-// --- ENVIRONMENT MAP ---
+// --- ENVIRONMENT MAP (REFLEJOS) ---
 new THREE.TextureLoader().load('./assets/textures/bg_reflejosIBL.webp', (t) => { 
     t.mapping = THREE.EquirectangularReflectionMapping; 
     t.colorSpace = THREE.SRGBColorSpace; 
@@ -76,8 +76,23 @@ loadingManager.onLoad = () => {
     }
 };
 
+// --- GESTIÓN DE AUDIO ---
+const unlockAudio = () => {
+    levelState.orbs.forEach(orb => {
+        if (orb.audio && !orb.audioStarted) {
+            orb.audio.play().then(() => { orb.audioStarted = true; }).catch(e => console.log("Click para audio"));
+        }
+    });
+    window.removeEventListener('click', unlockAudio);
+    // Ocultar mensaje si existe
+    if(msgDisplay && msgDisplay.innerText.includes("clic")) msgDisplay.style.display = 'none';
+};
+window.addEventListener('click', unlockAudio);
+
+
 // --- LÓGICA DE JUEGO ---
 let questState = 0; 
+let currentPhase = 0; // 0: Naranja, 1: Verde, 2: Azul
 let cinematicStartTime = 0; 
 let orbsLaunched = false;
 const raycaster = new THREE.Raycaster();
@@ -92,11 +107,12 @@ function checkPlatform() {
 
 function updateQuestLogic(dt, time) {
     if (questState === 0) {
+        if (msgDisplay) { msgDisplay.innerText = "Haz clic para iniciar Audio"; msgDisplay.style.display = 'block'; }
         if (checkPlatform()) { 
             questState = 1; 
             cinematicStartTime = time; 
             orbsLaunched = false; 
-            if(msgDisplay) { msgDisplay.style.display = 'block'; setTimeout(() => msgDisplay.style.display = 'none', 5000); } 
+            if(msgDisplay) { msgDisplay.style.display = 'block'; msgDisplay.innerText = "ESPERA..."; setTimeout(() => msgDisplay.style.display = 'none', 5000); } 
             spawnOrbsAtDoor(playerState.container.position); 
             
             const d = new THREE.Vector3(); 
@@ -114,10 +130,12 @@ function updateQuestLogic(dt, time) {
             questState = 2; 
         }
     } else if (questState === 2) {
-        // --- LÓGICA DE COLA / SEGUIMIENTO ---
+        const playerPos = playerState.container.position;
+        // Comprobar actualizaciones de orbes y cambio de fase
+        const phaseUp = updateOrbsLogic(dt, time, playerPos, camera.position, 0, currentPhase);
+        if(phaseUp) currentPhase++;
+
         let collectedCount = 0;
-        
-        // CORRECCIÓN: Invertido a (0, 0, -1) para que apunte hacia ATRÁS
         const playerBack = new THREE.Vector3(0, 0, -1).applyQuaternion(playerState.container.quaternion).normalize();
         const baseHeight = 1.2;
 
@@ -125,15 +143,9 @@ function updateQuestLogic(dt, time) {
             if (orb.state === 'editor_mode') return; 
             if(orb.collected) { 
                 collectedCount++; 
-                
-                // Orbe 0: Cerca. Orbe 1: Más atrás...
                 const distanceBehind = 1.2 + (i * 0.8); 
-                
-                // Objetivo: Posición + (Dirección Atrás * Distancia)
-                const target = playerState.container.position.clone()
-                    .add(playerBack.clone().multiplyScalar(distanceBehind));
+                const target = playerState.container.position.clone().add(playerBack.clone().multiplyScalar(distanceBehind));
                 target.y += baseHeight; 
-
                 orb.mesh.position.lerp(target, 4 * dt); 
             } 
         });
@@ -142,13 +154,10 @@ function updateQuestLogic(dt, time) {
             if(checkPlatform()) {
                 if (Math.abs(playerState.speed) < 0.1) { 
                     questState = 3; 
-                    
-                    // OCULTAR ORBES
                     levelState.orbs.forEach(o => {
                         o.mesh.visible = false;
                         if(o.particles) o.particles.stop();
                     });
-
                     levelState.doorActions.forEach(a => a.play()); 
                     if(msgDisplay) { msgDisplay.innerText = "PUERTA ABIERTA"; msgDisplay.style.display = 'block'; } 
                 } else { 
@@ -158,7 +167,7 @@ function updateQuestLogic(dt, time) {
                  if(msgDisplay) { msgDisplay.innerText = "VUELVE AL ALTAR"; msgDisplay.style.display = 'block'; }
             }
         } else { 
-            if(msgDisplay) msgDisplay.style.display = 'none'; 
+            if(msgDisplay && !msgDisplay.innerText.includes("clic")) msgDisplay.style.display = 'none'; 
         }
     }
 }
@@ -182,7 +191,11 @@ function animate() {
     const playerPos = playerState.container ? playerState.container.position : new THREE.Vector3(0,0,0);
     let cTime = 0; if(questState===1) cTime = elapsedTime - cinematicStartTime;
     
-    updateOrbsLogic(dt, elapsedTime, playerPos, camera.position, cTime);
+    // updateOrbsLogic se llama dentro de updateQuestLogic en estado 2, pero para animaciones de vuelo
+    // necesitamos llamarlo siempre si no estamos en estado 2 para mantener movimiento flotante
+    if(questState !== 2) {
+        updateOrbsLogic(dt, elapsedTime, playerPos, camera.position, cTime, currentPhase);
+    }
 
     if (playerState.container) {
         sunLight.target.position.set(0, 0, playerState.container.position.z); 

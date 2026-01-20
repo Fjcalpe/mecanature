@@ -2,84 +2,21 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { ParticleSystem3D } from './particles.js';
 
-// --- CONFIGURACIÓN POR DEFECTO (Con carga de PNG externo) ---
+// --- CONFIGURACIÓN DE FASES (AUDIO Y COLOR) ---
+const ORB_PHASES = [
+    { color: 0xffa500, sound: './assets/sound/orbe_bass.mp3' }, // Fase 0: Naranja
+    { color: 0x00ff00, sound: './assets/sound/orbe_mid.mp3' },  // Fase 1: Verde
+    { color: 0x00ffff, sound: './assets/sound/orbe_high.mp3' }  // Fase 2: Azul
+];
+
+// Configuración de partículas original
 const DEFAULT_ORB_CONFIG = {
   "layers": [
-    {
-      "id": 1,
-      "enabled": true,
-      "genType": "image",
-      "genColor": "#ffffff",
-      "blendMode": "add",
-      "sourceType": "image",
-      // CAMBIO AQUÍ: Ahora busca el archivo en la carpeta de texturas
-      "imageSrc": "./assets/textures/particle.png", 
-      "emissionRate": 230,
-      "life": {
-        "min": 0.7,
-        "max": 4.1
-      },
-      "speed": {
-        "value": 0.5,
-        "random": 0
-      },
-      "scale": {
-        "start": 0.2,
-        "end": 0
-      },
-      "alpha": {
-        "start": 1,
-        "end": 0.35
-      },
-      "gravity": {
-        "x": 0,
-        "y": 0
-      },
-      "globalOpacity": 1,
-      "spawnRadius": 0.2
-    },
-    {
-      "id": 2,
-      "enabled": true,
-      "genType": "glow",
-      "genColor": "#00ccdd",
-      "blendMode": "add",
-      "sourceType": "generator",
-      "imageSrc": null,
-      "emissionRate": 167,
-      "life": {
-        "min": 0.2,
-        "max": 1
-      },
-      "speed": {
-        "value": 0.9,
-        "random": 0.3
-      },
-      "scale": {
-        "start": 1,
-        "end": 0
-      },
-      "alpha": {
-        "start": 1,
-        "end": 0.1
-      },
-      "gravity": {
-        "x": 0,
-        "y": 0
-      },
-      "globalOpacity": 1,
-      "spawnRadius": 0
-    }
+    { "id": 1, "enabled": true, "genType": "image", "genColor": "#ffffff", "blendMode": "add", "sourceType": "image", "imageSrc": "./assets/textures/particle.png", "emissionRate": 230, "life": { "min": 0.7, "max": 4.1 }, "speed": { "value": 0.5, "random": 0 }, "scale": { "start": 0.2, "end": 0 }, "alpha": { "start": 1, "end": 0.35 }, "gravity": { "x": 0, "y": 0 }, "globalOpacity": 1, "spawnRadius": 0.2 },
+    { "id": 2, "enabled": true, "genType": "glow", "genColor": "#00ccdd", "blendMode": "add", "sourceType": "generator", "imageSrc": null, "emissionRate": 167, "life": { "min": 0.2, "max": 1 }, "speed": { "value": 0.9, "random": 0.3 }, "scale": { "start": 1, "end": 0 }, "alpha": { "start": 1, "end": 0.1 }, "gravity": { "x": 0, "y": 0 }, "globalOpacity": 1, "spawnRadius": 0 }
   ],
-  "orb": {
-    "radius": 0.2,
-    "color": "#00ffff",
-    "blend": "Normal"
-  },
-  "light": {
-    "color": "#00ffff",
-    "intensity": 20
-  }
+  "orb": { "radius": 0.2, "blend": "Normal" },
+  "light": { "intensity": 20 }
 };
 
 export const levelState = {
@@ -113,10 +50,18 @@ class OrbLogic {
         this.startCinematicPos = new THREE.Vector3();
         this.cinematicTargetPos = new THREE.Vector3();
 
+        // --- NUEVO: Configuración de Fase (Color y Audio) ---
+        const config = ORB_PHASES[this.id];
+        this.mesh.material.color.setHex(config.color);
+        this.light.color.setHex(config.color);
+
+        this.audio = new Audio(config.sound);
+        this.audio.loop = true;
+        this.audio.volume = 0;
+        this.audioStarted = false;
+
         if(ParticleSystem3D) {
-            // Inicializar SIN configuración
             this.particles = new ParticleSystem3D(scene);
-            // Cargar el preset con la imagen externa
             this.particles.importConfig(DEFAULT_ORB_CONFIG);
             this.particles.stop();
         }
@@ -125,8 +70,10 @@ class OrbLogic {
     spawnStacked(basePos, playerPos) {
         this.state = 'cinematic_stack';
         this.collected = false;
-        this.mesh.material.color.setHex(0xff0000); 
-        this.light.color.setHex(0xff0000);
+        // Restauramos color original de la fase
+        const config = ORB_PHASES[this.id];
+        this.mesh.material.color.setHex(config.color); 
+        this.light.color.setHex(config.color);
         
         const toDoor = new THREE.Vector3().subVectors(basePos, playerPos).normalize();
         this.startCinematicPos.copy(playerPos).add(toDoor.multiplyScalar(2.0));
@@ -168,12 +115,20 @@ class OrbLogic {
         );
     }
 
-    update(dt, time, playerPos, camPos, cinematicTime) {
+    update(dt, time, playerPos, camPos, cinematicTime, currentPhase) {
         if(this.particles) {
             this.particles.setPosition(this.mesh.position);
             if(this.state !== 'hidden') this.particles.start();
             else this.particles.stop();
             this.particles.update(dt);
+        }
+
+        // --- NUEVO: Actualización de Volumen ---
+        if (this.audioStarted) {
+            const dist = this.mesh.position.distanceTo(playerPos);
+            const maxRadius = 15; 
+            let vol = Math.max(0, 1 - (dist / maxRadius));
+            this.audio.volume = Math.pow(vol, 2); 
         }
 
         if(this.state === 'hidden' || this.state === 'editor_mode') return;
@@ -199,8 +154,6 @@ class OrbLogic {
             
             if (time - this.launchStartTime > 1.5) {
                 this.state = 'flying';
-                this.mesh.material.color.setHex(0x00ffff);
-                this.light.color.setHex(0x00ffff);
                 this.pickRandomTarget(levelState.mapBoundingBox);
             }
             return;
@@ -218,16 +171,27 @@ class OrbLogic {
             if(this.mesh.position.distanceTo(this.target) < 2.0) this.pickRandomTarget(levelState.mapBoundingBox);
             this.mesh.position.y = Math.max(1, Math.min(4.5, this.mesh.position.y));
             
-            if(playerPos.distanceTo(this.mesh.position) < 1.5) {
+            // --- NUEVO: Lógica de Recogida Secuencial ---
+            // Solo se recoge si es el orbe que toca (currentPhase)
+            if(this.id === currentPhase && playerPos.distanceTo(this.mesh.position) < 1.5) {
                 this.state = 'following';
                 this.collected = true;
+                return true; // Notificamos que se recogió
             }
         }
+        return false;
     }
 }
 
-export function updateOrbsLogic(dt, time, playerPos, camPos, cinematicTime) {
-    levelState.orbs.forEach(orb => orb.update(dt, time, playerPos, camPos, cinematicTime));
+// Actualizado para aceptar currentPhase y devolver si hubo cambio
+export function updateOrbsLogic(dt, time, playerPos, camPos, cinematicTime, currentPhase) {
+    let phaseChanged = false;
+    levelState.orbs.forEach(orb => {
+        if(orb.update(dt, time, playerPos, camPos, cinematicTime, currentPhase)) {
+            phaseChanged = true;
+        }
+    });
+    return phaseChanged;
 }
 
 export function spawnOrbsAtDoor(playerPos) {
@@ -299,22 +263,19 @@ export function loadLevel(scene, loadingManager, levelFile) {
         });
 
         for(let i=0; i<3; i++) {
+            // Usamos colores provisionales, luego OrbLogic pone los definitivos
             const mesh = new THREE.Mesh(
                 new THREE.SphereGeometry(DEFAULT_ORB_CONFIG.orb.radius, 16, 16), 
                 new THREE.MeshStandardMaterial({ 
-                    color: new THREE.Color(DEFAULT_ORB_CONFIG.orb.color), 
-                    emissive: 0x004444,
+                    color: 0xffffff, 
+                    emissive: 0x222222,
                     roughness: 0.2,
                     metalness: 0.5,
                     transparent: true,
                     blending: DEFAULT_ORB_CONFIG.orb.blend === 'Additive' ? THREE.AdditiveBlending : THREE.NormalBlending
                 })
             );
-            const light = new THREE.PointLight(
-                new THREE.Color(DEFAULT_ORB_CONFIG.light.color), 
-                DEFAULT_ORB_CONFIG.light.intensity, 
-                12, 1.9
-            );
+            const light = new THREE.PointLight(0xffffff, DEFAULT_ORB_CONFIG.light.intensity, 12, 1.9);
             mesh.add(light);
             scene.add(mesh);
             levelState.orbs.push(new OrbLogic(i, mesh, light, scene)); 
