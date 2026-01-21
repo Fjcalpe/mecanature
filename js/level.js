@@ -2,12 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { ParticleSystem3D } from './particles.js';
 
-// --- SONIDOS GLOBALES DEL NIVEL ---
-const sfxSelect = new Audio('./assets/sound/select.mp3');
-sfxSelect.volume = 1.0;
-
-const sfxAppear = new Audio('./assets/sound/orbes_aparecen.mp3');
-sfxAppear.volume = 1.0;
+// No importamos Tone porque lo hemos cargado vía CDN en el HTML (window.Tone)
 
 // --- CONFIGURACIÓN DE FASES ---
 const ORB_PHASES = [
@@ -34,6 +29,16 @@ export const levelState = {
     grassMaterialUniforms: { time: { value: 0 } }, grassParams: { count: 2000 }
 };
 
+// SFX Puntuales (Tone.Player es mejor para one-shots también)
+let playerSelect = null;
+let playerAppear = null;
+
+// Inicializamos los SFX globales
+function initGlobalSFX() {
+    if(!playerSelect) playerSelect = new Tone.Player('./assets/sound/select.mp3').toDestination();
+    if(!playerAppear) playerAppear = new Tone.Player('./assets/sound/orbes_aparecen.mp3').toDestination();
+}
+
 class OrbLogic {
     constructor(id, mesh, light, scene) {
         this.id = id; this.mesh = mesh; this.light = light;
@@ -41,21 +46,24 @@ class OrbLogic {
         this.target = new THREE.Vector3();
         this.velocity = new THREE.Vector3();
         this.collected = false;
-        this.launchStartTime = 0;
-        this.launchVelocity = new THREE.Vector3();
-        this.divergeVec = new THREE.Vector3();
-        this.oscillationOffset = Math.random() * 100;
-        this.startCinematicPos = new THREE.Vector3();
-        this.cinematicTargetPos = new THREE.Vector3();
+        
+        // Cinemática vars
+        this.launchStartTime = 0; this.launchVelocity = new THREE.Vector3();
+        this.divergeVec = new THREE.Vector3(); this.oscillationOffset = Math.random() * 100;
+        this.startCinematicPos = new THREE.Vector3(); this.cinematicTargetPos = new THREE.Vector3();
 
         const config = ORB_PHASES[this.id];
         this.mesh.material.color.setHex(config.color);
         this.light.color.setHex(config.color);
 
-        this.audio = new Audio(config.sound);
-        this.audio.loop = true;
-        this.audio.volume = 0;
-        this.audioStarted = false; // Empezará false hasta que lo activemos
+        // --- TONE.JS SETUP ---
+        // Creamos el reproductor, lo conectamos a la salida, lo sincronizamos y lo iniciamos en 0
+        // Nota: Al estar sync(), no sonará hasta que Tone.Transport.start() se llame.
+        this.player = new Tone.Player({
+            url: config.sound,
+            loop: true,
+            volume: -Infinity // Empezamos en silencio (mute)
+        }).toDestination().sync().start(0);
 
         if(ParticleSystem3D) {
             this.particles = new ParticleSystem3D(scene);
@@ -119,12 +127,24 @@ class OrbLogic {
             this.particles.update(dt);
         }
 
-        // Solo actualizamos volumen si el audio ha sido iniciado oficialmente
-        if (this.audioStarted) {
+        // --- GESTIÓN DE VOLUMEN (SPATIAL AUDIO SIMULADO) ---
+        // Tone usa decibelios. -Infinity es silencio, 0 es volumen nominal.
+        if (this.player.loaded && Tone.Transport.state === 'started') {
             const dist = this.mesh.position.distanceTo(playerPos);
-            const maxRadius = 15; 
-            let vol = Math.max(0, 1 - (dist / maxRadius));
-            this.audio.volume = Math.pow(vol, 2); 
+            const maxRadius = 15;
+            
+            if (dist < maxRadius) {
+                // Curva de atenuación: 1 en el centro, 0 en el borde
+                const linearVol = Math.max(0, 1 - (dist / maxRadius));
+                // Elevamos al cuadrado para una caída más natural (logarítmica al oído)
+                const curvedVol = Math.pow(linearVol, 2);
+                
+                // Convertimos a dB usando la utilidad de Tone
+                // Usamos rampTo para evitar "chasquidos" (clicks) si el volumen cambia muy rápido
+                this.player.volume.rampTo(Tone.gainToDb(curvedVol), 0.1);
+            } else {
+                this.player.volume.rampTo(-Infinity, 0.1);
+            }
         }
 
         if(this.state === 'hidden' || this.state === 'editor_mode') return;
@@ -171,9 +191,8 @@ class OrbLogic {
                 this.state = 'following';
                 this.collected = true;
                 
-                const soundClone = sfxSelect.cloneNode();
-                soundClone.volume = 1.0;
-                soundClone.play().catch(e => console.warn("Error sonido select:", e));
+                // Reproducir sonido "select" (one shot)
+                if(playerSelect && playerSelect.loaded) playerSelect.start();
                 
                 return true; 
             }
@@ -183,6 +202,7 @@ class OrbLogic {
 }
 
 export function updateOrbsLogic(dt, time, playerPos, camPos, cinematicTime, currentPhase) {
+    // YA NO NECESITAMOS CÓDIGO DE SINCRONIZACIÓN AQUÍ. TONE.JS LO HACE.
     let phaseChanged = false;
     levelState.orbs.forEach(orb => {
         if(orb.update(dt, time, playerPos, camPos, cinematicTime, currentPhase)) phaseChanged = true;
@@ -204,35 +224,29 @@ export function updateAllOrbParticles(pixiConfig) {
     });
 }
 
-// --- FUNCIONES DE CONTROL DE AUDIO ---
+// --- CONTROL DE AUDIO ---
 
 export function playOrbAppearSound() {
-    sfxAppear.play().catch(e => console.warn("Error audio orbes_aparecen:", e));
+    if(playerAppear && playerAppear.loaded) playerAppear.start();
 }
 
-// Nueva función que inicia REALMENTE las melodías
+// ESTA FUNCIÓN AHORA SOLO ARRANCA EL TRANSPORTE DE TONE
+// Los audios ya están encolados con .sync()
 export function startOrbMelodies() {
-    levelState.orbs.forEach(orb => {
-        if(orb.audio) {
-            orb.audio.play().catch(e => console.warn("Error play orb melody:", e));
-            orb.audioStarted = true; // A partir de aquí, el update calculará volumen
-        }
-    });
+    if (Tone.Transport.state !== 'started') {
+        Tone.Transport.start();
+    }
 }
 
 export function unlockLevelAudio() {
-    // "Calentamos" los SFX puntuales
-    const muteAndPlay = (audio) => {
-        audio.play().then(() => {
-            audio.pause();
-            audio.currentTime = 0;
-        }).catch(() => {});
-    };
-    muteAndPlay(sfxSelect);
-    muteAndPlay(sfxAppear);
+    // Con Tone.js, la carga es automática al crear el Player.
+    // Solo necesitamos asegurarnos de que el contexto esté activo en el main.js
 }
 
 export function loadLevel(scene, loadingManager, levelFile) {
+    // Inicializar SFX globales
+    initGlobalSFX();
+
     const loader = new GLTFLoader(loadingManager);
     
     if (!levelState.bgMesh) {
@@ -309,20 +323,18 @@ export function loadLevel(scene, loadingManager, levelFile) {
     });
 }
 
+// ... El resto de funciones (unloadCurrentLevel, modifyMaterialForWind, generateInstancedGrass)
+// NO CAMBIAN en absoluto. Se mantienen igual que en tu código anterior.
 export function unloadCurrentLevel(scene) {
-    if (levelState.parametricMesh) { 
-        scene.remove(levelState.parametricMesh); 
-        levelState.parametricMesh.geometry.dispose(); 
-        levelState.parametricMesh = null; 
-    }
+    if (levelState.parametricMesh) { scene.remove(levelState.parametricMesh); levelState.parametricMesh.geometry.dispose(); levelState.parametricMesh = null; }
     levelState.orbs.forEach(orb => { 
         if(orb.particles) orb.particles.dispose(); 
         scene.remove(orb.mesh); orb.mesh.geometry.dispose(); orb.mesh.material.dispose(); 
+        // IMPORTANTE: Disponer los players de Tone
+        if(orb.player) orb.player.dispose();
     });
     levelState.orbs = [];
-    if (levelState.levelMesh) { 
-        scene.remove(levelState.levelMesh); levelState.levelMesh = null; 
-    }
+    if (levelState.levelMesh) { scene.remove(levelState.levelMesh); levelState.levelMesh = null; }
     levelState.collisionMeshes = []; levelState.grassEmitterMeshes = []; levelState.doorActions = []; 
     levelState.platformMesh = null; levelState.sceneMixer = null; levelState.mapBoundingBox.makeEmpty();
 }

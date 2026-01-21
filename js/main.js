@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { loadPlayer, updatePlayer, playerState, jump, shoot, unlockPlayerAudio } from './player.js'; 
 import { updateSmartCamera, camSettings, startCameraCinematic, startCameraReturn } from './camera.js';
-// IMPORTANTE: Hemos añadido startOrbMelodies aquí
 import { loadLevel, levelState, spawnOrbsAtDoor, launchOrbs, updateOrbsLogic, generateInstancedGrass, updateAllOrbParticles, unlockLevelAudio, playOrbAppearSound, startOrbMelodies } from './level.js'; 
 import { InGameEditor } from './editor_ui.js'; 
 import { initUI, inputState, fpsDisplay, msgDisplay } from './ui_manager.js';
@@ -44,10 +43,9 @@ new THREE.TextureLoader().load('./assets/textures/bg_reflejosIBL.webp', (t) => {
     if(scene.environmentRotation) scene.environmentRotation.y = THREE.MathUtils.degToRad(334); 
 });
 
-// --- AUDIO AMBIENTE ---
-const audioAmbient = new Audio('./assets/sound/forest.mp3');
-audioAmbient.loop = true;
-audioAmbient.volume = 0.3;
+// --- AUDIO AMBIENTE (Tone.Player) ---
+let audioAmbient = null;
+let audioUnlocked = false; // Flag para controlar el mensaje de UI
 
 initUI({
     onJump: jump,
@@ -62,28 +60,30 @@ loadLevel(scene, loadingManager, './assets/models/MN_SCENE_01.gltf');
 loadPlayer(scene, loadingManager);
 
 loadingManager.onLoad = () => {
-    if (typeof InGameEditor !== 'undefined' && levelState.orbs.length > 0) new InGameEditor(scene, camera, renderer, levelState.orbs);
+    // COMENTADO: Ocultamos el editor de partículas para la versión final
+    // if (typeof InGameEditor !== 'undefined' && levelState.orbs.length > 0) new InGameEditor(scene, camera, renderer, levelState.orbs);
 };
 
-// --- GESTIÓN DE AUDIO (Inicia todo con el primer click) ---
-const unlockAudio = () => {
-    // 1. "Pre-calentar" orbes (Play + Pause inmediato)
-    levelState.orbs.forEach(orb => {
-        if (orb.audio) {
-            orb.audio.play().then(() => { 
-                orb.audio.pause(); 
-                orb.audio.currentTime = 0; 
-            }).catch(e => console.log("Click para audio"));
-        }
-    });
-    
+// --- GESTIÓN DE AUDIO ---
+const unlockAudio = async () => {
+    await Tone.start();
+    console.log("Tone.js Context Started");
+    audioUnlocked = true; // ¡Audio desbloqueado!
+
+    if(!audioAmbient) {
+        audioAmbient = new Tone.Player({
+            url: './assets/sound/forest.mp3',
+            loop: true,
+            volume: -10 
+        }).toDestination();
+        audioAmbient.autostart = true; 
+    }
+
     unlockPlayerAudio();
     unlockLevelAudio();
-    
-    // 2. Ambiente empieza ya
-    audioAmbient.play().catch(e => console.log("Esperando interacción para ambiente"));
 
     window.removeEventListener('click', unlockAudio);
+    // Forzamos oculta inmediata del mensaje
     if(msgDisplay && msgDisplay.innerText.includes("clic")) msgDisplay.style.display = 'none';
 };
 window.addEventListener('click', unlockAudio);
@@ -101,16 +101,21 @@ function checkPlatform() {
 
 function updateQuestLogic(dt, time) {
     if (questState === 0) {
-        if (msgDisplay) { msgDisplay.innerText = "Haz clic para iniciar Audio"; msgDisplay.style.display = 'block'; }
+        // Solo mostramos el mensaje si el audio NO ha sido desbloqueado aún
+        if (!audioUnlocked) {
+            if (msgDisplay) { msgDisplay.innerText = "Haz clic para iniciar Audio"; msgDisplay.style.display = 'block'; }
+        } else {
+            // Si ya hicimos clic, nos aseguramos de que el mensaje de "clic" no estorbe
+            if (msgDisplay && msgDisplay.innerText.includes("clic")) msgDisplay.style.display = 'none';
+        }
+
         if (checkPlatform()) { 
             questState = 1; 
             cinematicStartTime = time; 
             orbsLaunched = false; 
             if(msgDisplay) { msgDisplay.style.display = 'block'; msgDisplay.innerText = "ESPERA..."; setTimeout(() => msgDisplay.style.display = 'none', 5000); } 
             
-            // SONIDO APARICIÓN
             playOrbAppearSound(); 
-            
             spawnOrbsAtDoor(playerState.container.position); 
             const d = new THREE.Vector3(); camera.getWorldDirection(d); 
             startCameraCinematic(camera, camera.position.clone().add(d)); 
@@ -120,8 +125,6 @@ function updateQuestLogic(dt, time) {
         if (cinTime > 5.0 && !orbsLaunched) { launchOrbs(camera.position, time); orbsLaunched = true; } 
         if (cinTime > 6.5) { 
             startCameraReturn(camera, playerState.container.position, levelState.doorsCenter); 
-            
-            // CAMBIO DE ESTADO + ACTIVAR MELODÍAS
             questState = 2; 
             startOrbMelodies();
         }

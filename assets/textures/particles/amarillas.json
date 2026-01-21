@@ -1,0 +1,29 @@
+{
+  "sourceType": "generator",
+  "genType": "glow",
+  "genColor": "#fbff00",
+  "emissionRate": 93,
+  "spawnRadius": 0.6,
+  "life": {
+    "min": 0.8,
+    "max": 1.9
+  },
+  "speed": {
+    "value": 0.3,
+    "random": 0.4
+  },
+  "scale": {
+    "start": 0.6,
+    "end": 0
+  },
+  "alpha": {
+    "start": 1,
+    "end": 0.25
+  },
+  "gravity": {
+    "x": 0,
+    "y": 0
+  },
+  "globalOpacity": 1,
+  "imageSrc": null
+}

@@ -1,6 +1,15 @@
+/* 1. CARGA DE LA FUENTE CUSTOM */
+@font-face {
+    font-family: 'Ethnocentric';
+    src: url('./assets/fonts/Ethnocentric.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+}
+
 body { 
     margin: 0; overflow: hidden; background-color: #000; 
-    font-family: sans-serif; touch-action: none; user-select: none; -webkit-user-select: none;
+    font-family: sans-serif; 
+    touch-action: none; user-select: none; -webkit-user-select: none;
 }
 
 /* --- HUD & MENSAJES --- */
@@ -8,16 +17,27 @@ body {
     position: absolute; top: 10px; right: 10px;
     background: rgba(0, 0, 0, 0.5); color: #00ff00; 
     padding: 5px 10px; border-radius: 4px;
-    font-family: monospace; font-weight: bold; font-size: 14px;
+    font-family: 'Ethnocentric', monospace; 
+    font-size: 10px; 
     pointer-events: none; z-index: 200;
 }
 
+/* ESTILO MENSAJES: Minimalista Sci-Fi */
 #quest-message {
     position: absolute; top: 20%; left: 50%; transform: translate(-50%, -50%);
-    color: cyan; font-family: 'Courier New', Courier, monospace;
-    font-size: 24px; font-weight: bold; text-shadow: 0 0 10px cyan;
-    text-align: center; display: none; pointer-events: none; z-index: 300;
-    background: rgba(0,0,0,0.4); padding: 20px; border: 1px solid cyan;
+    font-family: 'Ethnocentric', Arial, sans-serif;
+    font-size: 28px; 
+    color: #ffffff;
+    letter-spacing: 2px;
+    background: transparent;
+    border: none;
+    padding: 0;
+    text-shadow: 0px 0px 10px rgba(0, 255, 255, 0.5), 2px 2px 0px #000;
+    text-align: center; 
+    display: none; 
+    pointer-events: none; 
+    z-index: 300;
+    transition: opacity 0.3s;
 }
 
 #error-log {
@@ -36,15 +56,20 @@ body.cinematic-mode #bar-top, body.cinematic-mode #bar-bottom { height: 10%; }
 body.cinematic-mode .ui-element { opacity: 0; pointer-events: none; }
 .ui-element { transition: opacity 0.5s; }
 
-/* --- SETTINGS --- */
+/* --- SETTINGS (OCULTO) --- */
 #settings-ui {
     position: absolute; top: 10px; left: 10px;
+    /* OCULTAMOS EL SLIDER DE HIERBA */
+    display: none; 
+    
     background: rgba(0, 0, 0, 0.6); padding: 10px;
     border-radius: 8px; color: white; font-size: 12px;
     z-index: 200; backdrop-filter: blur(4px);
-    display: flex; flex-direction: column; gap: 5px; width: 150px;
+    flex-direction: column; gap: 5px; width: 150px;
+    font-family: 'Ethnocentric', sans-serif; 
+    font-size: 9px;
 }
-#settings-ui label { font-weight: bold; display: flex; justify-content: space-between; }
+#settings-ui label { font-weight: normal; display: flex; justify-content: space-between; }
 input[type=range] { width: 100%; cursor: pointer; }
 
 /* --- CONTROLES MÓVIL --- */
@@ -73,7 +98,9 @@ input[type=range] { width: 100%; cursor: pointer; }
     border: 2px solid rgba(255, 255, 255, 0.3);
     border-radius: 50%;
     display: flex; justify-content: center; align-items: center;
-    color: white; font-size: 14px; font-weight: bold;
+    color: white; 
+    font-family: 'Ethnocentric', sans-serif; 
+    font-size: 10px; 
     cursor: pointer; backdrop-filter: blur(4px); touch-action: none;
 }
 .action-btn:active { background: rgba(255, 238, 177, 0.5); transform: scale(0.95); }
@@ -82,5 +109,7 @@ input[type=range] { width: 100%; cursor: pointer; }
 @media (max-width: 800px) { #pc-instructions { display: none; } }
 #pc-instructions {
     position: absolute; bottom: 10px; width: 100%; text-align: center;
-    color: rgba(255, 255, 255, 0.3); font-size: 12px; pointer-events: none;
+    color: rgba(255, 255, 255, 0.5); font-size: 10px; pointer-events: none;
+    font-family: 'Ethnocentric', sans-serif;
+    letter-spacing: 1px;
 }

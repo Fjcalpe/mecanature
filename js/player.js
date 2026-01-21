@@ -1,20 +1,31 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// --- SISTEMA DE AUDIO DE PASOS ---
-const audioSteps = {
-    grass: new Audio('./assets/sound/run_grass.mp3'),
-    stone: new Audio('./assets/sound/run_seco.mp3'),
-};
-audioSteps.grass.loop = true;
-audioSteps.stone.loop = true;
-audioSteps.grass.volume = 0.5;
-audioSteps.stone.volume = 0.8; // Subido volumen piedra para que se note más
+// --- SISTEMA DE AUDIO DE PASOS (TONE.JS) ---
+// Declaramos las variables pero no cargamos hasta que Tone esté listo o se necesiten
+let stepGrass = null;
+let stepStone = null;
 
-// Desbloqueo de audio inicial
+function initStepAudio() {
+    if(!stepGrass) {
+        stepGrass = new Tone.Player({
+            url: './assets/sound/run_grass.mp3',
+            loop: true,
+            volume: -6 // Un poco más bajo por defecto
+        }).toDestination();
+    }
+    if(!stepStone) {
+        stepStone = new Tone.Player({
+            url: './assets/sound/run_seco.mp3',
+            loop: true,
+            volume: -3
+        }).toDestination();
+    }
+}
+
+// Ya no necesitamos "desbloquear" individualmente, Tone.start() en main lo hace todo.
 export function unlockPlayerAudio() {
-    audioSteps.grass.play().then(() => audioSteps.grass.pause()).catch(() => {});
-    audioSteps.stone.play().then(() => audioSteps.stone.pause()).catch(() => {});
+    initStepAudio();
 }
 
 export const playerState = {
@@ -85,8 +96,8 @@ export function jump() {
     if (playerState.isGrounded) {
         playerState.velocityY = jumpStrength;
         playerState.isGrounded = false;
-        audioSteps.grass.pause();
-        audioSteps.stone.pause();
+        if(stepGrass && stepGrass.state === 'started') stepGrass.stop();
+        if(stepStone && stepStone.state === 'started') stepStone.stop();
     }
 }
 
@@ -119,7 +130,8 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
     if (isCinematic) {
         playerState.speed = 0; playerState.isMoving = false;
         if (playerState.mixer) { playerState.mixer.timeScale = 0; playerState.mixer.update(dt); }
-        audioSteps.grass.pause(); audioSteps.stone.pause();
+        if(stepGrass && stepGrass.state === 'started') stepGrass.stop();
+        if(stepStone && stepStone.state === 'started') stepStone.stop();
         return;
     }
 
@@ -186,10 +198,8 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
             playerState.isGrounded = false;
         }
 
-        // --- DETECCIÓN DE SUPERFICIE MEJORADA ---
         if (playerState.isGrounded && floorInfo.object) {
             const name = floorInfo.object.name.toLowerCase();
-            // Comprobamos el nombre específico que pediste
             if (name.includes("consola_mirador") || name.includes("plataforma")) {
                 playerState.currentSurface = 'stone';
             } else {
@@ -211,17 +221,25 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
 }
 
 function handleFootsteps() {
+    if (!stepGrass || !stepStone) return; // Esperar a que initStepAudio se llame
+
     if (playerState.isGrounded && playerState.isMoving && playerState.speed > 0.5) {
+        const speedRatio = Math.max(0.5, playerState.speed / maxMoveSpeed);
+        
         if (playerState.currentSurface === 'stone') {
-            if (audioSteps.grass.paused === false) audioSteps.grass.pause(); 
-            if (audioSteps.stone.paused) audioSteps.stone.play().catch(()=>{}); 
+            if (stepGrass.state === 'started') stepGrass.stop();
+            
+            stepStone.playbackRate = speedRatio;
+            if (stepStone.state !== 'started') stepStone.start(); 
         } else {
-            if (audioSteps.stone.paused === false) audioSteps.stone.pause(); 
-            if (audioSteps.grass.paused) audioSteps.grass.play().catch(()=>{}); 
+            if (stepStone.state === 'started') stepStone.stop();
+            
+            stepGrass.playbackRate = speedRatio;
+            if (stepGrass.state !== 'started') stepGrass.start();
         }
     } else {
-        audioSteps.grass.pause();
-        audioSteps.stone.pause();
+        if (stepGrass.state === 'started') stepGrass.stop();
+        if (stepStone.state === 'started') stepStone.stop();
     }
 }
 

@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Editor de Partículas 3D (Standalone)</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #111; font-family: 'Segoe UI', sans-serif; color: #ccc; user-select: none; }
+        
+        /* LAYOUT */
+        #main-container { display: flex; height: 100vh; }
+        #canvas-container { flex: 1; position: relative; background: #000; }
+        
+        /* PANEL LATERAL */
+        #ui-panel {
+            width: 340px; background: #1e1e1e; border-left: 1px solid #333;
+            display: flex; flex-direction: column; z-index: 10;
+            box-shadow: -5px 0 15px rgba(0,0,0,0.5);
+        }
+        
+        #ui-header {
+            padding: 15px; background: #252525; border-bottom: 1px solid #333;
+            font-weight: bold; color: #e91e63; text-align: center; letter-spacing: 1px;
+            font-size: 14px;
+        }
+
+        #ui-content {
+            flex: 1; overflow-y: auto; padding: 15px;
+            scrollbar-width: thin; scrollbar-color: #444 #222;
+        }
+
+        /* CONTROLES */
+        .section-title { font-size: 11px; color: #e91e63; text-transform: uppercase; font-weight: 800; margin-top: 15px; margin-bottom: 5px; border-bottom: 1px solid #333; padding-bottom: 2px; }
+        .control-row { display: flex; align-items: center; margin-bottom: 8px; font-size: 12px; }
+        .control-row label { flex: 1; color: #aaa; }
+        .control-row input[type="range"] { flex: 2; margin: 0 8px; accent-color: #e91e63; cursor: pointer; }
+        .control-row input[type="number"] { width: 50px; background: #111; border: 1px solid #444; color: #e91e63; text-align: right; padding: 4px; border-radius: 3px; }
+        .control-row input[type="color"] { border: none; width: 40px; height: 25px; cursor: pointer; background: none; }
+        .control-row select { background: #333; color: #eee; border: 1px solid #444; padding: 4px; flex: 2; }
+
+        /* INPUT IMAGEN */
+        .img-upload-box {
+            border: 1px dashed #555; padding: 10px; text-align: center; margin-top: 5px; border-radius: 4px; background: #222;
+        }
+        .img-preview { max-width: 60px; max-height: 60px; display: block; margin: 5px auto; border: 1px solid #444; background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="5" height="5" fill="%23333"/><rect x="5" y="5" width="5" height="5" fill="%23333"/></svg>'); }
+        
+        /* BOTONES */
+        .btn-bar { display: flex; gap: 5px; padding: 15px; background: #252525; border-top: 1px solid #333; }
+        .btn { flex: 1; padding: 10px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; color: white; transition: filter 0.2s; font-size: 12px; }
+        .btn:hover { filter: brightness(1.2); }
+        .btn-save { background: #2e7d32; }
+        .btn-load { background: #1565c0; }
+        .btn-img { background: #444; font-size: 10px; padding: 5px; width: 100%; margin-top: 5px; cursor: pointer;}
+
+        /* INFO */
+        #overlay-info { position: absolute; top: 10px; left: 10px; color: #666; font-family: monospace; font-size: 12px; pointer-events: none; }
+        #error-log { position: absolute; top: 30px; left: 10px; color: red; background:rgba(0,0,0,0.8); padding:5px; font-family: monospace; font-size: 12px; display:none; }
+    </style>
+</head>
+<body>
+    <div id="main-container">
+        <div id="canvas-container">
+            <div id="overlay-info">Click y arrastra el Orbe - Rueda ratón: Zoom</div>
+            <div id="error-log"></div>
+        </div>
+        
+        <div id="ui-panel">
+            <div id="ui-header">EDITOR DE PARTÍCULAS (3D)</div>
+            <div id="ui-content">
+                
+                <div class="section-title">FUENTE / TEXTURA</div>
+                <div class="control-row">
+                    <label>Modo</label>
+                    <select id="cfg-source-type">
+                        <option value="generator">Generador (Formas)</option>
+                        <option value="image">Imagen (PNG)</option>
+                    </select>
+                </div>
+
+                <div id="panel-generator">
+                    <div class="control-row">
+                        <label>Forma</label>
+                        <select id="cfg-gen-type">
+                            <option value="glow">Glow (Suave)</option>
+                            <option value="hardCircle">Círculo Duro</option>
+                            <option value="smoke">Humo</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="panel-image" style="display:none;">
+                    <div class="img-upload-box">
+                        <img id="img-preview" src="" style="display:none;" class="img-preview">
+                        <label class="btn btn-img">
+                            Subir PNG...
+                            <input type="file" id="img-input" accept="image/png, image/jpeg" style="display:none;">
+                        </label>
+                    </div>
+                </div>
+
+                <div class="control-row">
+                    <label>Tintar Color</label>
+                    <input type="color" id="cfg-color" value="#00ffff">
+                </div>
+                <div class="control-row">
+                    <label>Blending</label>
+                    <select id="cfg-blend">
+                        <option value="normal">Normal</option>
+                        <option value="additive">Aditivo (Brillo)</option>
+                    </select>
+                </div>
+
+                <div class="section-title">EMISIÓN</div>
+                <div class="control-row">
+                    <label>Cantidad</label>
+                    <input type="range" id="cfg-rate" min="1" max="200" value="30">
+                    <input type="number" id="num-rate" value="30">
+                </div>
+                <div class="control-row">
+                    <label>Radio Spawn</label>
+                    <input type="range" id="cfg-radius" min="0" max="2" step="0.1" value="0.5">
+                    <input type="number" id="num-radius" value="0.5">
+                </div>
+
+                <div class="section-title">VIDA (Segundos)</div>
+                <div class="control-row">
+                    <label>Min</label>
+                    <input type="number" id="cfg-life-min" value="0.5" step="0.1">
+                    <label style="text-align:center">Max</label>
+                    <input type="number" id="cfg-life-max" value="1.0" step="0.1">
+                </div>
+
+                <div class="section-title">FÍSICA</div>
+                <div class="control-row">
+                    <label>Velocidad</label>
+                    <input type="range" id="cfg-speed-val" min="0" max="10" step="0.1" value="1">
+                    <input type="number" id="num-speed-val" value="1">
+                </div>
+                <div class="control-row">
+                    <label>Aleatoriedad</label>
+                    <input type="range" id="cfg-speed-rnd" min="0" max="5" step="0.1" value="0.5">
+                    <input type="number" id="num-speed-rnd" value="0.5">
+                </div>
+                <div class="control-row">
+                    <label>Gravedad Y</label>
+                    <input type="range" id="cfg-grav" min="-5" max="5" step="0.1" value="1">
+                    <input type="number" id="num-grav" value="1">
+                </div>
+
+                <div class="section-title">EVOLUCIÓN</div>
+                <div class="control-row">
+                    <label>Escala Ini</label>
+                    <input type="number" id="cfg-scale-start" value="0.5" step="0.1">
+                    <label style="text-align:center">Fin</label>
+                    <input type="number" id="cfg-scale-end" value="0.0" step="0.1">
+                </div>
+                <div class="control-row">
+                    <label>Alpha Ini</label>
+                    <input type="number" id="cfg-alpha-start" value="1.0" step="0.1" max="1">
+                    <label style="text-align:center">Fin</label>
+                    <input type="number" id="cfg-alpha-end" value="0.0" step="0.1" max="1">
+                </div>
+                <div class="control-row">
+                    <label>Opacidad Global</label>
+                    <input type="range" id="cfg-opacity" min="0" max="1" step="0.05" value="1">
+                </div>
+
+            </div>
+            <div class="btn-bar">
+                <button class="btn btn-load" onclick="document.getElementById('file-import').click()">Abrir JSON</button>
+                <button class="btn btn-save" onclick="exportJSON()">Guardar JSON</button>
+            </div>
+            <input type="file" id="file-import" style="display:none" accept=".json">
+        </div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://esm.sh/three@0.168.0",
+                "three/addons/": "https://esm.sh/three@0.168.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // =======================================================
+        // --- 1. CLASE MOTOR DE PARTÍCULAS (INTEGRADA AQUÍ) ---
+        // =======================================================
+        const texLoader = new THREE.TextureLoader();
+
+        function createParticleTexture(type, colorHex) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64; canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            const color = colorHex || '#ffffff';
+
+            if (type === 'glow') {
+                const g = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+                g.addColorStop(0, color); g.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
+            } else if (type === 'hardCircle') {
+                ctx.fillStyle = color; ctx.beginPath(); ctx.arc(32, 32, 30, 0, Math.PI * 2); ctx.fill();
+            } else if (type === 'smoke') {
+                const g = ctx.createRadialGradient(32, 32, 10, 32, 32, 32);
+                g.addColorStop(0, color); g.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
+            }
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.colorSpace = THREE.SRGBColorSpace;
+            return texture;
+        }
+
+        class Particle3D {
+            constructor(parentSystem) {
+                this.system = parentSystem;
+                this.mesh = new THREE.Sprite(this.system.material);
+                this.active = false;
+            }
+            spawn(position) {
+                const cfg = this.system.config;
+                this.active = true;
+                this.age = 0;
+                this.life = cfg.life.min + Math.random() * (cfg.life.max - cfg.life.min);
+                this.mesh.position.copy(position);
+                
+                const r = cfg.spawnRadius || 0.3;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+                const dist = Math.random() * r;
+                this.mesh.position.x += dist * Math.sin(phi) * Math.cos(theta);
+                this.mesh.position.y += dist * Math.sin(phi) * Math.sin(theta);
+                this.mesh.position.z += dist * Math.cos(phi);
+
+                const baseSpd = cfg.speed.value || 1; 
+                const randSpd = cfg.speed.random || 0;
+                const spd = (baseSpd + Math.random() * randSpd); 
+                const vTheta = Math.random() * Math.PI * 2;
+                const vPhi = Math.acos(2 * Math.random() - 1);
+                this.velocity = new THREE.Vector3(
+                    Math.sin(vPhi) * Math.cos(vTheta) * spd,
+                    Math.sin(vPhi) * Math.sin(vTheta) * spd,
+                    Math.cos(vPhi) * spd
+                );
+
+                this.scaleStart = cfg.scale.start; this.scaleEnd = cfg.scale.end;
+                this.mesh.scale.setScalar(this.scaleStart);
+                this.mesh.material.opacity = cfg.alpha.start;
+                this.mesh.material.rotation = Math.random() * Math.PI * 2;
+                this.mesh.visible = true;
+                this.system.container.add(this.mesh);
+            }
+            update(dt) {
+                if (!this.active) return;
+                this.age += dt;
+                if (this.age >= this.life) {
+                    this.active = false; this.mesh.visible = false; this.system.container.remove(this.mesh); return;
+                }
+                const cfg = this.system.config;
+                const t = this.age / this.life;
+                this.velocity.y += cfg.gravity.y * dt;
+                this.mesh.position.addScaledVector(this.velocity, dt);
+                const currentScale = this.scaleStart * (1 - t) + this.scaleEnd * t;
+                this.mesh.scale.setScalar(currentScale);
+                const currentAlpha = (cfg.alpha.start * (1 - t) + cfg.alpha.end * t) * cfg.globalOpacity;
+                this.mesh.material.opacity = currentAlpha;
+            }
+        }
+
+        class ParticleSystem3D {
+            constructor(scene, config) {
+                this.scene = scene;
+                this.config = config || {};
+                this.particles = []; this.pool = [];
+                this.container = new THREE.Group();
+                this.scene.add(this.container);
+                this.material = new THREE.SpriteMaterial({
+                    map: createParticleTexture('glow', '#ffffff'),
+                    transparent: true, opacity: 1, depthWrite: false, blending: THREE.NormalBlending
+                });
+                this.spawnTimer = 0; this.emitting = false; this.emitterPosition = new THREE.Vector3();
+            }
+            start() { this.emitting = true; }
+            setPosition(pos) { this.emitterPosition.copy(pos); }
+            updateConfig(newConfig) {
+                this.config = { ...this.config, ...newConfig };
+                if (this.config.sourceType === 'image' && this.config.imageSrc) {
+                    texLoader.load(this.config.imageSrc, (tex) => {
+                        tex.colorSpace = THREE.SRGBColorSpace;
+                        this.material.map = tex;
+                        if(newConfig.genColor) this.material.color.set(newConfig.genColor); else this.material.color.set(0xffffff);
+                        this.material.needsUpdate = true;
+                    });
+                } else {
+                    this.material.map = createParticleTexture(this.config.genType || 'glow', '#ffffff');
+                    if(newConfig.genColor) this.material.color.set(newConfig.genColor);
+                    this.material.needsUpdate = true;
+                }
+            }
+            update(dt) {
+                if (this.emitting) {
+                    const rate = this.config.emissionRate || 20; const interval = 1.0 / rate; this.spawnTimer += dt;
+                    while (this.spawnTimer >= interval) { this.spawnTimer -= interval; this.spawnParticle(); }
+                }
+                for (let i = this.particles.length - 1; i >= 0; i--) {
+                    const p = this.particles[i];
+                    if (p.active) p.update(dt); else { this.pool.push(p); this.particles.splice(i, 1); }
+                }
+            }
+            spawnParticle() {
+                let p = this.pool.length > 0 ? this.pool.pop() : new Particle3D(this);
+                p.spawn(this.emitterPosition); this.particles.push(p);
+            }
+        }
+
+        // =======================================================
+        // --- 2. SETUP DE LA ESCENA (EDITOR) ---
+        // =======================================================
+        window.addEventListener('error', (e) => {
+            document.getElementById('error-log').innerText = "Error: " + e.message;
+            document.getElementById('error-log').style.display = 'block';
+        });
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x111111);
+        
+        // Grid y Ejes
+        const grid = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
+        scene.add(grid);
+        scene.add(new THREE.AxesHelper(1));
+
+        const camera = new THREE.PerspectiveCamera(75, (window.innerWidth - 340) / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 2, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth - 340, window.innerHeight);
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
+        // Luces
+        const ambLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambLight);
+        const pointLight = new THREE.PointLight(0xffffff, 1);
+        pointLight.position.set(2, 5, 2);
+        scene.add(pointLight);
+
+        // ORBE
+        const orbGeo = new THREE.SphereGeometry(0.3, 16, 16);
+        const orbMat = new THREE.MeshStandardMaterial({ color: 0x00ffff, wireframe: false });
+        const orb = new THREE.Mesh(orbGeo, orbMat);
+        orb.position.y = 1.0;
+        scene.add(orb);
+
+        // --- INICIAR SISTEMA ---
+        let currentConfig = {
+            sourceType: 'generator', genType: 'glow', genColor: '#00ffff',
+            emissionRate: 30, spawnRadius: 0.5,
+            life: { min: 0.5, max: 1.0 }, speed: { value: 1, random: 0.5 },
+            scale: { start: 0.5, end: 0 }, alpha: { start: 1, end: 0 },
+            gravity: { x: 0, y: 1 }, globalOpacity: 1
+        };
+
+        const particleSystem = new ParticleSystem3D(scene, currentConfig);
+        particleSystem.start();
+
+        // --- INTERACCIÓN ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+        let isDragging = false;
+
+        renderer.domElement.addEventListener('mousedown', (e) => {
+            updateMouse(e);
+            raycaster.setFromCamera(mouse, camera);
+            if (raycaster.intersectObject(orb).length > 0) {
+                isDragging = true;
+                controls.enabled = false;
+                camera.getWorldDirection(dragPlane.normal);
+                dragPlane.constant = -orb.position.dot(dragPlane.normal);
+            }
+        });
+
+        window.addEventListener('mouseup', () => { isDragging = false; controls.enabled = true; });
+        
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            updateMouse(e);
+            raycaster.setFromCamera(mouse, camera);
+            const target = new THREE.Vector3();
+            if (raycaster.ray.intersectPlane(dragPlane, target)) orb.position.copy(target);
+        });
+
+        function updateMouse(e) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        }
+
+        // --- UI LOGIC ---
+        const ui = {
+            srcType: document.getElementById('cfg-source-type'),
+            genType: document.getElementById('cfg-gen-type'),
+            imgInput: document.getElementById('img-input'),
+            color: document.getElementById('cfg-color'),
+            blend: document.getElementById('cfg-blend'),
+            rate: document.getElementById('cfg-rate'), rateNum: document.getElementById('num-rate'),
+            radius: document.getElementById('cfg-radius'), radiusNum: document.getElementById('num-radius'),
+            lifeMin: document.getElementById('cfg-life-min'), lifeMax: document.getElementById('cfg-life-max'),
+            speed: document.getElementById('cfg-speed-val'), speedNum: document.getElementById('num-speed-val'),
+            speedRnd: document.getElementById('cfg-speed-rnd'), speedRndNum: document.getElementById('num-speed-rnd'),
+            grav: document.getElementById('cfg-grav'), numGrav: document.getElementById('num-grav'),
+            scaleStart: document.getElementById('cfg-scale-start'), scaleEnd: document.getElementById('cfg-scale-end'),
+            alphaStart: document.getElementById('cfg-alpha-start'), alphaEnd: document.getElementById('cfg-alpha-end'),
+            opacity: document.getElementById('cfg-opacity')
+        };
+
+        let currentImageBase64 = null;
+
+        ui.srcType.addEventListener('change', () => {
+            const isImg = ui.srcType.value === 'image';
+            document.getElementById('panel-generator').style.display = isImg ? 'none' : 'block';
+            document.getElementById('panel-image').style.display = isImg ? 'block' : 'none';
+            updateSystem();
+        });
+
+        ui.imgInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                currentImageBase64 = evt.target.result;
+                document.getElementById('img-preview').src = currentImageBase64;
+                document.getElementById('img-preview').style.display = 'block';
+                updateSystem();
+            };
+            reader.readAsDataURL(file);
+        });
+
+        function updateSystem() {
+            const cfg = {
+                sourceType: ui.srcType.value,
+                genType: ui.genType.value,
+                genColor: ui.color.value,
+                imageSrc: currentImageBase64,
+                emissionRate: parseFloat(ui.rate.value),
+                spawnRadius: parseFloat(ui.radius.value),
+                life: { min: parseFloat(ui.lifeMin.value), max: parseFloat(ui.lifeMax.value) },
+                speed: { value: parseFloat(ui.speed.value), random: parseFloat(ui.speedRnd.value) },
+                gravity: { x: 0, y: parseFloat(ui.grav.value) },
+                scale: { start: parseFloat(ui.scaleStart.value), end: parseFloat(ui.scaleEnd.value) },
+                alpha: { start: parseFloat(ui.alphaStart.value), end: parseFloat(ui.alphaEnd.value) },
+                globalOpacity: parseFloat(ui.opacity.value)
+            };
+
+            const newBlend = ui.blend.value === 'additive' ? THREE.AdditiveBlending : THREE.NormalBlending;
+            if (particleSystem.material && particleSystem.material.blending !== newBlend) {
+                particleSystem.material.blending = newBlend;
+                particleSystem.material.needsUpdate = true;
+            }
+
+            ui.rateNum.value = ui.rate.value; ui.radiusNum.value = ui.radius.value;
+            ui.speedNum.value = ui.speed.value; ui.speedRndNum.value = ui.speedRnd.value;
+            ui.numGrav.value = ui.grav.value;
+
+            orbMat.color.set(cfg.genColor);
+            particleSystem.updateConfig(cfg);
+        }
+
+        document.querySelectorAll('input, select').forEach(el => {
+            if(el.type !== 'file') el.addEventListener('input', updateSystem);
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            particleSystem.setPosition(orb.position);
+            particleSystem.update(0.016);
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            const w = window.innerWidth - 340;
+            camera.aspect = w / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, window.innerHeight);
+        });
+
+        animate();
+
+        window.exportJSON = () => {
+            const json = JSON.stringify(particleSystem.config, null, 2);
+            const blob = new Blob([json], {type: "application/json"});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = "particulas_orbe.json";
+            a.click();
+        };
+
+        document.getElementById('file-import').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                const data = JSON.parse(evt.target.result);
+                if(data.sourceType) ui.srcType.value = data.sourceType;
+                if(data.genType) ui.genType.value = data.genType;
+                if(data.genColor) ui.color.value = data.genColor;
+                if(data.imageSrc) {
+                    currentImageBase64 = data.imageSrc;
+                    document.getElementById('img-preview').src = currentImageBase64;
+                    document.getElementById('img-preview').style.display = 'block';
+                }
+                if(data.emissionRate) ui.rate.value = data.emissionRate;
+                if(data.spawnRadius) ui.radius.value = data.spawnRadius;
+                if(data.life) { ui.lifeMin.value = data.life.min; ui.lifeMax.value = data.life.max; }
+                if(data.speed) { ui.speed.value = data.speed.value; ui.speedRnd.value = data.speed.random; }
+                if(data.gravity) ui.grav.value = data.gravity.y;
+                if(data.scale) { ui.scaleStart.value = data.scale.start; ui.scaleEnd.value = data.scale.end; }
+                if(data.alpha) { ui.alphaStart.value = data.alpha.start; ui.alphaEnd.value = data.alpha.end; }
+                
+                ui.srcType.dispatchEvent(new Event('change'));
+                updateSystem();
+            };
+            reader.readAsText(file);
+        });
+    </script>
+</body>
+</html>
