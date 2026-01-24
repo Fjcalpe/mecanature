@@ -6,13 +6,11 @@ export const inputState = {
 export function initUI(callbacks) {
     const { onJump, onShoot } = callbacks;
 
-    // --- ERROR LOGGING ---
     window.addEventListener('error', (e) => {
         const el = document.getElementById('error-log');
         if(el) { el.style.display = 'block'; el.innerHTML += "Error: " + e.message + "<br>"; }
     });
 
-    // --- JOYSTICK LOGIC ---
     let joystickTouchId = null;
     const joystickContainer = document.getElementById('joystick-container');
     const joystickThumb = document.getElementById('joystick-thumb');
@@ -86,15 +84,10 @@ export function initUI(callbacks) {
         window.addEventListener('mouseup', stopJoystick);
     }
 
-    // --- ACTION BUTTONS ---
     const bindAction = (id, action) => {
         const btn = document.getElementById(id);
         if(!btn) return;
-        const trigger = (e) => { 
-            if(e.cancelable) e.preventDefault(); 
-            e.stopPropagation(); 
-            action(); 
-        };
+        const trigger = (e) => { if(e.cancelable) e.preventDefault(); e.stopPropagation(); action(); };
         btn.addEventListener('touchstart', trigger, {passive: false});
         btn.addEventListener('mousedown', trigger);
     };

@@ -37,7 +37,6 @@ export const playerState = {
     isMoving: false,
     speed: 0,
     currentSurface: 'grass',
-    // Velocidades fijadas por petición
     animSpeeds: {
         walk: 1.6,
         jump: 0.6
@@ -85,20 +84,16 @@ export function loadPlayer(scene, loadingManager) {
 
         if (gltf.animations && gltf.animations.length > 0) {
             playerState.mixer = new THREE.AnimationMixer(rawMesh);
-            
             gltf.animations.forEach((clip) => {
                 const name = clip.name;
                 const action = playerState.mixer.clipAction(clip);
                 const lower = name.toLowerCase();
-                
                 if (lower.includes('idle')) playerState.actions['Idle'] = action;
                 else if (lower.includes('run')) playerState.actions['Run'] = action;
                 else if (lower.includes('jump') || name.includes('Armature.001')) playerState.actions['Jump'] = action;
                 else if (lower.includes('walk') || (name.includes('Armature|mixamo') && !name.includes('.001'))) playerState.actions['Walk'] = action;
-
                 playerState.actions[name] = action;
             });
-
             if(playerState.actions['Idle']) {
                 playerState.activeAction = playerState.actions['Idle'];
                 playerState.activeAction.play();
@@ -111,6 +106,8 @@ export function jump() {
     if (playerState.isGrounded) {
         playerState.velocityY = jumpStrength;
         playerState.isGrounded = false;
+        if(stepGrass && stepGrass.state === 'started') stepGrass.stop();
+        if(stepStone && stepStone.state === 'started') stepStone.stop();
     }
 }
 
@@ -118,7 +115,10 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
     if (!playerState.container) return;
 
     if (isCinematic) {
-        playerState.speed = 0; playerState.isMoving = false;
+        playerState.speed = 0; 
+        playerState.isMoving = false;
+        if(stepGrass && stepGrass.state === 'started') stepGrass.stop();
+        if(stepStone && stepStone.state === 'started') stepStone.stop();
         changeAction('Idle', 0.5);
         if (playerState.mixer) playerState.mixer.update(dt);
         return;
@@ -132,7 +132,6 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
 
     moveDirection.set(inputX, 0, inputY);
     const len = moveDirection.length();
-    
     if (len > 0.1 && playerState.landingCooldown <= 0) {
         playerState.isMoving = true;
         playerState.speed = (len > 1 ? maxMoveSpeed : maxMoveSpeed * len);
@@ -146,7 +145,6 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
         camera.getWorldDirection(_v1); _v1.y = 0; _v1.normalize(); 
         _v2.crossVectors(new THREE.Vector3(0, 1, 0), _v1).normalize(); 
         const finalDir = _v1.clone().multiplyScalar(-moveDirection.z).addScaledVector(_v2, -moveDirection.x).normalize();
-
         const ray = new THREE.Raycaster(playerState.container.position.clone().add(new THREE.Vector3(0,1,0)), finalDir, 0, 0.8);
         if (ray.intersectObjects(collisionMeshes, true).length === 0) {
             playerState.container.position.addScaledVector(finalDir, playerState.speed * dt);
@@ -157,14 +155,28 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
     playerState.velocityY += gravity * dt;
     const propY = playerState.container.position.y + playerState.velocityY * dt;
     const floorInfo = getFloorInfo(playerState.container.position, playerState.container.position.y, collisionMeshes);
-    
+    const distToFloor = playerState.container.position.y - floorInfo.y;
+
     if (propY <= floorInfo.y && playerState.velocityY <= 0) {
         playerState.container.position.y = floorInfo.y;
         playerState.velocityY = 0;
         playerState.isGrounded = true;
+    } else if (playerState.isGrounded && distToFloor < 0.4 && playerState.velocityY <= 0) {
+        playerState.container.position.y = floorInfo.y;
+        playerState.velocityY = 0;
     } else {
         playerState.container.position.y = propY;
         playerState.isGrounded = false;
+    }
+
+    // ACTUALIZACIÓN DE SUPERFICIE: Incluye consola_mirador_colision
+    if (playerState.isGrounded && floorInfo.object) {
+        const name = floorInfo.object.name.toLowerCase();
+        if (name.includes("consola") || name.includes("plataforma") || name.includes("mirador")) {
+            playerState.currentSurface = 'stone';
+        } else {
+            playerState.currentSurface = 'grass';
+        }
     }
 
     if (playerState.mixer) {
@@ -181,15 +193,10 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
 
         const active = playerState.activeAction;
         if (active) {
-            if (nextActionName === 'Run') {
-                active.timeScale = playerState.speed / 7.5;
-            } else if (nextActionName === 'Walk') {
-                active.timeScale = (playerState.speed / 3.5) * playerState.animSpeeds.walk;
-            } else if (nextActionName === 'Jump') {
-                active.timeScale = playerState.animSpeeds.jump;
-            } else {
-                active.timeScale = 1.0;
-            }
+            if (nextActionName === 'Run') active.timeScale = playerState.speed / 7.5;
+            else if (nextActionName === 'Walk') active.timeScale = (playerState.speed / 3.5) * playerState.animSpeeds.walk;
+            else if (nextActionName === 'Jump') active.timeScale = playerState.animSpeeds.jump;
+            else active.timeScale = 1.0;
         }
         playerState.mixer.update(dt);
     }
@@ -207,7 +214,9 @@ function changeAction(name, duration) {
 function handleFootsteps() {
     if (!stepGrass || !stepStone) return;
     if (playerState.isGrounded && playerState.isMoving && playerState.speed > 0.1) {
-        const speedRatio = Math.max(0.5, playerState.speed / maxMoveSpeed);
+        // Límite de 0.8 para evitar tono grave al caminar lento
+        const speedRatio = Math.max(0.8, playerState.speed / maxMoveSpeed);
+        
         if (playerState.currentSurface === 'stone') {
             if (stepGrass.state === 'started') stepGrass.stop();
             stepStone.playbackRate = speedRatio;
