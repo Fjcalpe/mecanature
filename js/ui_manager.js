@@ -4,7 +4,7 @@ export const inputState = {
 };
 
 export function initUI(callbacks) {
-    const { onJump, onShoot, onGrassChange } = callbacks;
+    const { onJump, onShoot } = callbacks;
 
     // --- ERROR LOGGING ---
     window.addEventListener('error', (e) => {
@@ -100,17 +100,6 @@ export function initUI(callbacks) {
     };
     bindAction('btn-jump', onJump);
     bindAction('btn-shoot', onShoot);
-
-    // --- SLIDER HIERBA ---
-    const grassSlider = document.getElementById('grass-slider');
-    const grassLabel = document.getElementById('grass-val');
-    if (grassSlider) {
-        grassSlider.addEventListener('input', (e) => {
-            const val = parseInt(e.target.value);
-            if (grassLabel) grassLabel.innerText = val;
-            onGrassChange(val);
-        });
-    }
 }
 
 export const fpsDisplay = document.getElementById('fps-display');
