@@ -12,6 +12,33 @@ body {
     touch-action: none; user-select: none; -webkit-user-select: none;
 }
 
+/* --- HUD CALIDAD GRÁFICA --- */
+#quality-hud {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 5px; z-index: 200;
+    background: rgba(0, 0, 0, 0.3);
+    padding: 5px; border-radius: 8px;
+    backdrop-filter: blur(2px);
+}
+
+.q-btn {
+    background: transparent; border: 1px solid rgba(255, 255, 255, 0.3); 
+    color: rgba(255, 255, 255, 0.7);
+    padding: 5px 10px; cursor: pointer;
+    font-family: 'Ethnocentric', sans-serif; font-size: 8px;
+    transition: all 0.2s; border-radius: 4px;
+}
+
+.q-btn:hover { background: rgba(255, 255, 255, 0.1); color: white; }
+
+/* Clase para el botón activo */
+.q-btn.active {
+    background: rgba(0, 229, 255, 0.2); 
+    border-color: #00e5ff; 
+    color: #00e5ff;
+    box-shadow: 0 0 5px rgba(0, 229, 255, 0.3);
+}
+
 /* --- HUD & MENSAJES --- */
 #fps-display {
     position: absolute; top: 10px; right: 10px;
@@ -22,7 +49,7 @@ body {
     pointer-events: none; z-index: 200;
 }
 
-/* ESTILO MENSAJES: Minimalista Sci-Fi */
+/* ESTILO MENSAJES */
 #quest-message {
     position: absolute; top: 20%; left: 50%; transform: translate(-50%, -50%);
     font-family: 'Ethnocentric', Arial, sans-serif;
@@ -55,22 +82,6 @@ body {
 body.cinematic-mode #bar-top, body.cinematic-mode #bar-bottom { height: 10%; }
 body.cinematic-mode .ui-element { opacity: 0; pointer-events: none; }
 .ui-element { transition: opacity 0.5s; }
-
-/* --- SETTINGS (OCULTO) --- */
-#settings-ui {
-    position: absolute; top: 10px; left: 10px;
-    /* OCULTAMOS EL SLIDER DE HIERBA */
-    display: none; 
-    
-    background: rgba(0, 0, 0, 0.6); padding: 10px;
-    border-radius: 8px; color: white; font-size: 12px;
-    z-index: 200; backdrop-filter: blur(4px);
-    flex-direction: column; gap: 5px; width: 150px;
-    font-family: 'Ethnocentric', sans-serif; 
-    font-size: 9px;
-}
-#settings-ui label { font-weight: normal; display: flex; justify-content: space-between; }
-input[type=range] { width: 100%; cursor: pointer; }
 
 /* --- CONTROLES MÓVIL --- */
 #joystick-container {
