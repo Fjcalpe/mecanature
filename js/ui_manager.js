@@ -3,6 +3,39 @@ export const inputState = {
     isDraggingJoystick: false
 };
 
+// Nueva función para gestionar botones in-game
+export function initQualityHUD(onQualitySelected) {
+    const btns = {
+        high: document.getElementById('btn-q-high'),
+        medium: document.getElementById('btn-q-med'),
+        low: document.getElementById('btn-q-low')
+    };
+
+    if(!btns.high) return;
+
+    const setActive = (selectedKey) => {
+        Object.keys(btns).forEach(k => {
+            if(k === selectedKey) btns[k].classList.add('active');
+            else btns[k].classList.remove('active');
+        });
+        onQualitySelected(selectedKey);
+    };
+
+    // Usamos touchstart y mousedown para respuesta rápida
+    const bind = (key) => {
+        const fn = (e) => { 
+            e.preventDefault(); e.stopPropagation(); 
+            setActive(key); 
+        };
+        btns[key].addEventListener('touchstart', fn, {passive: false});
+        btns[key].addEventListener('mousedown', fn);
+    };
+
+    bind('high');
+    bind('medium');
+    bind('low');
+}
+
 export function initUI(callbacks) {
     const { onJump, onShoot } = callbacks;
 

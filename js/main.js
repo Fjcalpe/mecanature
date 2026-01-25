@@ -3,7 +3,7 @@ import { loadPlayer, updatePlayer, playerState, jump, shoot, unlockPlayerAudio }
 import { updateSmartCamera, camSettings, startCameraCinematic, startCameraReturn } from './camera.js';
 import { loadLevel, levelState, spawnOrbsAtDoor, launchOrbs, updateOrbsLogic, generateInstancedGrass, updateAllOrbParticles, unlockLevelAudio, playOrbAppearSound, startOrbMelodies } from './level.js'; 
 import { InGameEditor } from './editor_ui.js'; 
-import { initUI, inputState, fpsDisplay, msgDisplay } from './ui_manager.js';
+import { initUI, inputState, fpsDisplay, msgDisplay, initQualityHUD } from './ui_manager.js';
 
 // --- CONFIGURACIÓN ESCENA ---
 const scene = new THREE.Scene();
@@ -12,6 +12,7 @@ scene.fog = new THREE.FogExp2(0xeecfa1, 0.022);
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000);
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setSize(window.innerWidth, window.innerHeight);
+// Pixel ratio inicial (default ALTA)
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.toneMapping = THREE.ACESFilmicToneMapping; 
 renderer.toneMappingExposure = 0.5;
@@ -43,9 +44,48 @@ new THREE.TextureLoader().load('./assets/textures/bg_reflejosIBL.webp', (t) => {
     if(scene.environmentRotation) scene.environmentRotation.y = THREE.MathUtils.degToRad(334); 
 });
 
+// --- FUNCIÓN DE CALIDAD GRÁFICA ---
+function applyGraphicsSettings(quality) {
+    console.log("Cambiando calidad a:", quality);
+    
+    if (quality === 'high') {
+        // ALTA: Todo original
+        levelState.grassParams.count = 2000;
+        sunLight.shadow.mapSize.set(2048, 2048);
+        renderer.shadowMap.enabled = true;
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    } else if (quality === 'medium') {
+        // MEDIA: 1000 hierbas, sombras 1024, pixel 1x
+        levelState.grassParams.count = 1000;
+        sunLight.shadow.mapSize.set(1024, 1024);
+        renderer.shadowMap.enabled = true;
+        renderer.setPixelRatio(1.0);
+    } else if (quality === 'low') {
+        // BAJA: 500 hierbas, sin sombras, pixel 0.8x
+        levelState.grassParams.count = 500;
+        renderer.shadowMap.enabled = false;
+        renderer.setPixelRatio(0.8);
+    }
+
+    // Actualizar sombra si cambió el tamaño del mapa
+    if(sunLight.shadow.map) {
+        sunLight.shadow.map.dispose();
+        sunLight.shadow.map = null;
+    }
+    
+    // Regenerar hierba dinámicamente
+    generateInstancedGrass(scene);
+}
+
+// Inicializamos el HUD y activamos calidad Alta por defecto
+initQualityHUD(applyGraphicsSettings);
+// Forzamos la actualización visual y lógica al inicio
+// Nota: applyGraphicsSettings ya se ejecutó implícitamente por el renderer, pero esto sincroniza el botón activo si hiciera falta lógica extra.
+// (El botón "ALTA" ya tiene la clase .active en el HTML por defecto)
+
 // --- AUDIO AMBIENTE (Tone.Player) ---
 let audioAmbient = null;
-let audioUnlocked = false; // Flag para controlar el mensaje de UI
+let audioUnlocked = false; 
 
 initUI({
     onJump: jump,
@@ -60,15 +100,14 @@ loadLevel(scene, loadingManager, './assets/models/MN_SCENE_01.gltf');
 loadPlayer(scene, loadingManager);
 
 loadingManager.onLoad = () => {
-    // COMENTADO: Ocultamos el editor de partículas para la versión final
-    // if (typeof InGameEditor !== 'undefined' && levelState.orbs.length > 0) new InGameEditor(scene, camera, renderer, levelState.orbs);
+    // Escena cargada
 };
 
 // --- GESTIÓN DE AUDIO ---
 const unlockAudio = async () => {
     await Tone.start();
     console.log("Tone.js Context Started");
-    audioUnlocked = true; // ¡Audio desbloqueado!
+    audioUnlocked = true; 
 
     if(!audioAmbient) {
         audioAmbient = new Tone.Player({
@@ -83,7 +122,6 @@ const unlockAudio = async () => {
     unlockLevelAudio();
 
     window.removeEventListener('click', unlockAudio);
-    // Forzamos oculta inmediata del mensaje
     if(msgDisplay && msgDisplay.innerText.includes("clic")) msgDisplay.style.display = 'none';
 };
 window.addEventListener('click', unlockAudio);
@@ -101,11 +139,9 @@ function checkPlatform() {
 
 function updateQuestLogic(dt, time) {
     if (questState === 0) {
-        // Solo mostramos el mensaje si el audio NO ha sido desbloqueado aún
         if (!audioUnlocked) {
             if (msgDisplay) { msgDisplay.innerText = "Haz clic para iniciar Audio"; msgDisplay.style.display = 'block'; }
         } else {
-            // Si ya hicimos clic, nos aseguramos de que el mensaje de "clic" no estorbe
             if (msgDisplay && msgDisplay.innerText.includes("clic")) msgDisplay.style.display = 'none';
         }
 
