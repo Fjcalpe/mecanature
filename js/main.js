@@ -12,7 +12,7 @@ scene.fog = new THREE.FogExp2(0xeecfa1, 0.022);
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000);
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setSize(window.innerWidth, window.innerHeight);
-// Pixel ratio inicial (default ALTA)
+// Pixel ratio inicial (se ajustará con el menú, empezamos en ALTA por defecto)
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.toneMapping = THREE.ACESFilmicToneMapping; 
 renderer.toneMappingExposure = 0.5;
@@ -30,6 +30,7 @@ sunOffset.set(sunDistance * Math.sin(phi) * Math.sin(theta), sunDistance * Math.
 
 const sunLight = new THREE.DirectionalLight(0xffeeb1, 6.0);
 sunLight.castShadow = true; 
+// Mapa de sombras inicial (ALTA)
 sunLight.shadow.mapSize.set(2048, 2048); 
 sunLight.shadow.camera.left = -20; sunLight.shadow.camera.right = 20; 
 sunLight.shadow.camera.top = 20; sunLight.shadow.camera.bottom = -20;
@@ -61,27 +62,25 @@ function applyGraphicsSettings(quality) {
         renderer.shadowMap.enabled = true;
         renderer.setPixelRatio(1.0);
     } else if (quality === 'low') {
-        // BAJA: 500 hierbas, sin sombras, pixel 0.8x
+        // BAJA: 500 hierbas, SOMBRAS ACTIVAS a 512x512, pixel 0.8x
         levelState.grassParams.count = 500;
-        renderer.shadowMap.enabled = false;
+        sunLight.shadow.mapSize.set(512, 512); // Reducimos resolución de sombra
+        renderer.shadowMap.enabled = true;     // MANTENEMOS sombras activadas
         renderer.setPixelRatio(0.8);
     }
 
-    // Actualizar sombra si cambió el tamaño del mapa
+    // Actualizar sombra si cambió el tamaño del mapa (necesario para Three.js)
     if(sunLight.shadow.map) {
         sunLight.shadow.map.dispose();
         sunLight.shadow.map = null;
     }
     
-    // Regenerar hierba dinámicamente
+    // Regenerar hierba dinámicamente con la nueva cantidad
     generateInstancedGrass(scene);
 }
 
-// Inicializamos el HUD y activamos calidad Alta por defecto
+// Inicializamos el HUD y activamos la lógica de botones
 initQualityHUD(applyGraphicsSettings);
-// Forzamos la actualización visual y lógica al inicio
-// Nota: applyGraphicsSettings ya se ejecutó implícitamente por el renderer, pero esto sincroniza el botón activo si hiciera falta lógica extra.
-// (El botón "ALTA" ya tiene la clase .active en el HTML por defecto)
 
 // --- AUDIO AMBIENTE (Tone.Player) ---
 let audioAmbient = null;
