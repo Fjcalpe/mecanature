@@ -1,16 +1,17 @@
 import * as THREE from 'three';
-import { playerState } from './player.js'; // Necesitamos saber si está surfeando
 
 export const camSettings = { 
     radius: 4.5, minRadius: 1.5, currentRadius: 4.5, 
     theta: Math.PI, phi: 0.45 
 };
 
+// Variables para la cinemática
 let isCinematic = false;
 let isReturning = false;
 let cinematicStartTime = 0;
 let returnStartTime = 0;
 
+// Vectores temporales para cálculos
 const _camIdeal = new THREE.Vector3();
 const _camHead = new THREE.Vector3();
 const _currentLookAt = new THREE.Vector3();
@@ -20,6 +21,7 @@ const _returnStartLook = new THREE.Vector3();
 let _returnStartRadius, _returnStartPhi, _returnStartTheta;
 let isLookAtInitialized = false;
 
+// Inputs manuales
 let isDraggingCamera = false;
 let previousMousePosition = { x: 0, y: 0 };
 
@@ -38,10 +40,13 @@ document.addEventListener('pointermove', (e) => {
 });
 document.addEventListener('pointerup', () => isDraggingCamera = false);
 
+// --- FUNCIONES DE CONTROL CINEMÁTICO ---
+
 export function startCameraCinematic(camera, currentLookAt) {
     isCinematic = true;
     isReturning = false;
     cinematicStartTime = performance.now() / 1000;
+    
     _cinematicStartPos.copy(camera.position);
     _cinematicStartLook.copy(currentLookAt);
     document.body.classList.add('cinematic-mode');
@@ -60,6 +65,7 @@ export function startCameraReturn(camera, playerPos, doorsCenter) {
     _returnStartTheta = spherical.theta;
     _returnStartLook.copy(_currentLookAt);
 
+    // Calcular ángulo ideal detrás del jugador mirando a la puerta
     const dirToStage = new THREE.Vector3().subVectors(playerPos, doorsCenter).normalize();
     const angle = Math.atan2(dirToStage.x, dirToStage.z);
 
@@ -74,6 +80,7 @@ export function updateSmartCamera(camera, playerContainer, collisionMeshes, dt, 
 
     const time = performance.now() / 1000;
 
+    // --- MODO 1: CINEMÁTICA ---
     if (isCinematic) {
         const localTime = time - cinematicStartTime;
         const toDoorDir = new THREE.Vector3().subVectors(doorsCenter, playerContainer.position).normalize();
@@ -100,6 +107,7 @@ export function updateSmartCamera(camera, playerContainer, collisionMeshes, dt, 
         return;
     }
 
+    // --- MODO 2: RETORNO ---
     if (isReturning) {
         const localTime = time - returnStartTime;
         const duration = 2.0; 
@@ -107,6 +115,7 @@ export function updateSmartCamera(camera, playerContainer, collisionMeshes, dt, 
         if (localTime < duration) {
             const t = localTime / duration;
             const smoothT = t * t * (3 - 2 * t);
+
             const radiusT = Math.min(1.0, smoothT * 3.0); 
             const curRadius = THREE.MathUtils.lerp(_returnStartRadius, camSettings.radius, radiusT);
             const curPhi = THREE.MathUtils.lerp(_returnStartPhi, camSettings.phi, smoothT);
@@ -136,42 +145,32 @@ export function updateSmartCamera(camera, playerContainer, collisionMeshes, dt, 
         return;
     }
 
-    // --- MODO NORMAL ---
+    // --- MODO 3: JUEGO NORMAL ---
     _camIdeal.set(
         camSettings.radius * Math.sin(camSettings.phi) * Math.sin(camSettings.theta),
         camSettings.radius * Math.cos(camSettings.phi),
         camSettings.radius * Math.sin(camSettings.phi) * Math.cos(camSettings.theta)
     ).add(playerContainer.position);
 
-    // AJUSTE DE ALTURA DINÁMICO
-    // Si estamos surfeando, bajamos el objetivo para ver mejor la máscara
-    let targetHeadY = 1.5; 
-    if (playerState.standingOnEnemy) {
-        targetHeadY = -0.5; // Bajamos la vista para centrar la acción más abajo
-    }
-
-    _camHead.copy(playerContainer.position);
-    _camHead.y += targetHeadY;
-
-    // Colisión de cámara
+    _camHead.copy(playerContainer.position).y += 1.5;
     const _tempDir = new THREE.Vector3().subVectors(_camIdeal, _camHead).normalize();
     const raycaster = new THREE.Raycaster(_camHead, _tempDir, 0, camSettings.radius);
     const hits = raycaster.intersectObjects(collisionMeshes, true);
     camSettings.currentRadius = hits.length > 0 ? Math.max(camSettings.minRadius, hits[0].distance - 0.2) : camSettings.radius;
 
+    // Posición final
     const finalPos = new THREE.Vector3(
         camSettings.currentRadius * Math.sin(camSettings.phi) * Math.sin(camSettings.theta),
         camSettings.currentRadius * Math.cos(camSettings.phi),
         camSettings.currentRadius * Math.sin(camSettings.phi) * Math.cos(camSettings.theta)
     ).add(playerContainer.position);
     
-    // Suavizado
     camera.position.lerp(finalPos, 0.25);
 
+    // LookAt Suavizado
     const targetLook = playerContainer.position.clone();
-    targetLook.y += targetHeadY;
-    
+    targetLook.y += 1.5;
     if (!isLookAtInitialized) { _currentLookAt.copy(targetLook); isLookAtInitialized = true; }
-    _currentLookAt.lerp(targetLook, 0.1); 
+    _currentLookAt.lerp(targetLook, 0.25); 
     camera.lookAt(_currentLookAt);
 }

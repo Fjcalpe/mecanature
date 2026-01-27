@@ -13,9 +13,7 @@ function initStepAudio() {
     }
 }
 
-export function unlockPlayerAudio() {
-    initStepAudio();
-}
+export function unlockPlayerAudio() { initStepAudio(); }
 
 export const playerState = {
     container: null,
@@ -23,7 +21,7 @@ export const playerState = {
     mixer: null,
     actions: {},        
     activeAction: null, 
-    velocity: new THREE.Vector3(),
+    velocity: new THREE.Vector3(), 
     momentum: new THREE.Vector3(), 
     velocityY: 0,
     isGrounded: false,
@@ -32,10 +30,7 @@ export const playerState = {
     speed: 0,
     currentSurface: 'grass',
     standingOnEnemy: null, 
-    animSpeeds: {
-        walk: 1.6,
-        jump: 0.6
-    }
+    animSpeeds: { walk: 1.6, jump: 0.6 }
 };
 
 const keyStates = { w: false, a: false, s: false, d: false };
@@ -65,8 +60,7 @@ export function loadPlayer(scene, loadingManager) {
         rawMesh.scale.set(1.2, 1.2, 1.2);
         
         playerState.container = new THREE.Group();
-        // Usamos la posición de inicio nueva (-6, 4, 0)
-        playerState.container.position.set(-6, 4, 0);
+        playerState.container.position.set(-6, 4, 0); 
         scene.add(playerState.container);
 
         const box = new THREE.Box3().setFromObject(rawMesh);
@@ -100,34 +94,6 @@ export function loadPlayer(scene, loadingManager) {
     });
 }
 
-export function jump() {
-    if (playerState.isGrounded) {
-        playerState.velocityY = jumpStrength;
-        playerState.isGrounded = false;
-        
-        if (playerState.standingOnEnemy) {
-            playerState.momentum.copy(playerState.standingOnEnemy.velocity);
-            
-            // Al saltar desde la máscara, limpiamos rotación visual
-            playerState.visualMesh.rotation.set(0,0,0);
-            
-            // Orientamos el salto hacia adelante
-            const velDir = playerState.standingOnEnemy.velocity.clone().normalize();
-            if (velDir.lengthSq() > 0.01) {
-                 const angle = Math.atan2(velDir.x, velDir.z);
-                 // Reseteamos el contenedor a vertical puro
-                 const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), angle);
-                 playerState.container.quaternion.copy(q);
-            }
-        }
-        
-        playerState.standingOnEnemy = null; 
-
-        if(stepGrass && stepGrass.state === 'started') stepGrass.stop();
-        if(stepStone && stepStone.state === 'started') stepStone.stop();
-    }
-}
-
 export function takeDamage() {
     if (!playerState.visualMesh) return;
     playerState.visualMesh.traverse(child => {
@@ -141,6 +107,29 @@ export function takeDamage() {
             }
         }
     });
+}
+
+export function jump() {
+    if (playerState.isGrounded) {
+        playerState.velocityY = jumpStrength;
+        playerState.isGrounded = false;
+        
+        if (playerState.standingOnEnemy) {
+            playerState.momentum.copy(playerState.standingOnEnemy.velocity);
+            
+            // Orientar salto hacia adelante
+            const velDir = playerState.standingOnEnemy.velocity.clone().normalize();
+            if (velDir.lengthSq() > 0.01) {
+                 const angle = Math.atan2(velDir.x, velDir.z);
+                 playerState.container.rotation.y = angle;
+            }
+        }
+        
+        playerState.standingOnEnemy = null; 
+
+        if(stepGrass && stepGrass.state === 'started') stepGrass.stop();
+        if(stepStone && stepStone.state === 'started') stepStone.stop();
+    }
 }
 
 export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCinematic, enemy) {
@@ -158,7 +147,7 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
 
     if (playerState.landingCooldown > 0) playerState.landingCooldown -= dt;
     
-    // --- INPUT ---
+    // INPUT
     let inputX = joystickVector.x; let inputY = joystickVector.y;
     if (keyStates.w) inputY -= 1; if (keyStates.s) inputY += 1;
     if (keyStates.a) inputX -= 1; if (keyStates.d) inputX += 1;
@@ -172,6 +161,33 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
         playerState.isMoving = false;
         playerState.speed = 0;
     }
+
+    const playerMoveVector = new THREE.Vector3();
+    
+    // MOVIMIENTO MANUAL
+    if (playerState.isMoving) {
+        const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3();
+        camera.getWorldDirection(_v1); _v1.y = 0; _v1.normalize(); 
+        _v2.crossVectors(new THREE.Vector3(0, 1, 0), _v1).normalize(); 
+        const finalDir = _v1.clone().multiplyScalar(-moveDirection.z).addScaledVector(_v2, -moveDirection.x).normalize();
+        
+        if (!playerState.standingOnEnemy) {
+            playerState.container.quaternion.slerp(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(finalDir.x, finalDir.z)), 10 * dt);
+        }
+        
+        const ray = new THREE.Raycaster(playerState.container.position.clone().add(new THREE.Vector3(0,1,0)), finalDir, 0, 0.8);
+        if (ray.intersectObjects(collisionMeshes, true).length === 0) {
+             playerMoveVector.copy(finalDir).multiplyScalar(playerState.speed * dt);
+        }
+    }
+
+    // MOMENTUM
+    if (!playerState.isGrounded && !playerState.standingOnEnemy) {
+        playerState.container.position.addScaledVector(playerState.momentum, dt);
+    }
+
+    playerState.velocityY += gravity * dt;
+    let nextY = playerState.container.position.y + playerState.velocityY * dt;
 
     // --- INTERACCIÓN CON ENEMIGO ---
     let isOnEnemy = false;
@@ -189,9 +205,8 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
         const relativeY = playerState.container.position.y - enemy.mesh.position.y;
         const isAbove = relativeY > 0 && relativeY < 2.5;
 
-        // ESTAMOS SOBRE LA MÁSCARA
+        // ESTAMOS SOBRE EL ENEMIGO
         if ((playerState.velocityY <= 0 && (exactHit || (isCloseEnough && isAbove))) || playerState.standingOnEnemy) {
-            
             if (!playerState.standingOnEnemy) enemy.takeDamage(); 
 
             isOnEnemy = true;
@@ -199,86 +214,65 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
             playerState.isGrounded = true;
             playerState.velocityY = 0;
 
-            // Anclaje: Copiar posición y rotación exactas
+            // 1. POSICIÓN (Anclaje al hueso)
             const targetPos = new THREE.Vector3();
             enemy.collisionTop.getWorldPosition(targetPos);
             playerState.container.position.copy(targetPos);
+            nextY = targetPos.y; 
+
+            // 2. ROTACIÓN CUERPO (Mirar hacia donde va la máscara)
+            const velDir = enemy.velocity.clone().normalize();
+            if (velDir.lengthSq() > 0.1) {
+                const targetRotY = Math.atan2(velDir.x, velDir.z);
+                const targetQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), targetRotY);
+                playerState.container.quaternion.slerp(targetQ, 8.0 * dt);
+            }
+
+            // 3. ROTACIÓN VISUAL (Banking) - Solo Z, X siempre 0 para estar de pie
+            const enemyZ = enemy.mesh.rotation.z; 
+            const targetVisZ = enemyZ * 0.5; // Banking reducido
             
-            const targetQuat = new THREE.Quaternion();
-            enemy.collisionTop.getWorldQuaternion(targetQuat);
-            playerState.container.quaternion.copy(targetQuat);
-            
-            // Reseteamos rotación interna por si acaso
-            playerState.visualMesh.rotation.set(0,0,0);
-            
-            // Limpiamos momentum
+            playerState.visualMesh.rotation.x = 0; // VERTICALIDAD FORZADA
+            playerState.visualMesh.rotation.z = THREE.MathUtils.lerp(playerState.visualMesh.rotation.z, targetVisZ, 5.0 * dt);
+
+            playerMoveVector.set(0, 0, 0); 
             playerState.momentum.set(0, 0, 0);
         }
     }
 
-    // --- MOVIMIENTO SUELO (LÓGICA RESTAURADA DE PLAYER_VIEJO.JS) ---
     if (!isOnEnemy) {
         playerState.standingOnEnemy = null;
-        
-        // RESET DE ROTACIONES PARÁSITAS (Esto arregla el correr de lado)
-        // Aseguramos que el modelo interno esté recto
+        // Restaurar posición visual al saltar
         playerState.visualMesh.rotation.set(0,0,0);
-
-        if (playerState.isMoving) {
-            const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3();
-            camera.getWorldDirection(_v1); _v1.y = 0; _v1.normalize(); 
-            _v2.crossVectors(new THREE.Vector3(0, 1, 0), _v1).normalize(); 
-            const finalDir = _v1.clone().multiplyScalar(-moveDirection.z).addScaledVector(_v2, -moveDirection.x).normalize();
-            
-            const ray = new THREE.Raycaster(playerState.container.position.clone().add(new THREE.Vector3(0,1,0)), finalDir, 0, 0.8);
-            if (ray.intersectObjects(collisionMeshes, true).length === 0) {
-                // Movimiento directo (sin acumuladores raros)
-                playerState.container.position.addScaledVector(finalDir, playerState.speed * dt);
-            }
-            
-            // Rotación pura en Y (Slerp) - Esto endereza al personaje si estaba torcido
-            playerState.container.quaternion.slerp(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(finalDir.x, finalDir.z)), 10 * dt);
-        }
-
-        // MOMENTUM (INERCIA DE SALTO)
-        if (!playerState.isGrounded) {
-            playerState.container.position.addScaledVector(playerState.momentum, dt);
-        }
-
-        // GRAVEDAD Y COLISIÓN SUELO
-        playerState.velocityY += gravity * dt;
-        const propY = playerState.container.position.y + playerState.velocityY * dt;
-        const floorInfo = getFloorInfo(playerState.container.position, playerState.container.position.y, collisionMeshes);
-        const distToFloor = playerState.container.position.y - floorInfo.y;
-
-        if (propY <= floorInfo.y && playerState.velocityY <= 0) {
-            playerState.container.position.y = floorInfo.y;
-            playerState.velocityY = 0;
-            playerState.isGrounded = true;
-            playerState.momentum.set(0,0,0); // Fricción suelo
-        } else if (playerState.isGrounded && distToFloor < 0.4 && playerState.velocityY <= 0) {
-            // Snap al suelo si bajamos una pendiente
-            playerState.container.position.y = floorInfo.y;
-            playerState.velocityY = 0;
-        } else {
-            playerState.container.position.y = propY;
-            playerState.isGrounded = false;
-        }
-
-        // SURFACE TYPE
-        if (playerState.isGrounded && floorInfo.object) {
-            const name = floorInfo.object.name.toLowerCase();
-            playerState.currentSurface = (name.includes("consola") || name.includes("plataforma") || name.includes("mirador")) ? 'stone' : 'grass';
-        }
-    } else {
-        // Si estamos en enemigo, superficie piedra
-        playerState.currentSurface = 'stone';
     }
 
-    // ANIMACIONES
+    // SUELO ESTÁTICO
+    if (!isOnEnemy) {
+        const floorInfo = getFloorInfo(playerState.container.position, playerState.container.position.y, collisionMeshes);
+        
+        if (nextY <= floorInfo.y && playerState.velocityY <= 0) {
+            nextY = floorInfo.y;
+            playerState.velocityY = 0;
+            playerState.isGrounded = true;
+            playerState.momentum.lerp(new THREE.Vector3(0,0,0), 5.0 * dt);
+            playerState.currentSurface = getSurfaceType(floorInfo.object);
+            
+            // Reset rotaciones raras
+            playerState.container.rotation.x = 0;
+            playerState.container.rotation.z = 0;
+        } else {
+            playerState.isGrounded = false;
+        }
+        
+        playerState.container.position.add(playerMoveVector);
+        playerState.container.position.y = nextY;
+    } else {
+        playerState.currentSurface = 'stone'; 
+    }
+
     if (playerState.mixer) {
         let nextActionName = 'Idle';
-        if (!playerState.isGrounded && !isOnEnemy) nextActionName = 'Jump';
+        if (!playerState.isGrounded) nextActionName = 'Jump';
         else if (playerState.isMoving) nextActionName = (playerState.speed > 4.0) ? 'Run' : 'Walk';
 
         if (!playerState.actions[nextActionName]) {
@@ -298,6 +292,13 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
         playerState.mixer.update(dt);
     }
     handleFootsteps();
+}
+
+function getSurfaceType(object) {
+    if (!object) return 'grass';
+    const name = object.name.toLowerCase();
+    if (name.includes("consola") || name.includes("plataforma") || name.includes("mirador")) return 'stone';
+    return 'grass';
 }
 
 function changeAction(name, duration) {

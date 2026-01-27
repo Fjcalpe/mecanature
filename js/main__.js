@@ -6,6 +6,7 @@ import { InGameEditor } from './editor_ui.js';
 import { initUI, inputState, fpsDisplay, msgDisplay, initQualityHUD } from './ui_manager.js';
 import { Enemy } from './enemy.js'; 
 
+// --- CONFIGURACIÓN ESCENA ---
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0xeecfa1, 0.022);
 
@@ -20,7 +21,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
-// ILUMINACIÓN
+// --- ILUMINACIÓN ---
 const sunDistance = 50; const sunElevation = 13; const sunRotation = 270; 
 let sunOffset = new THREE.Vector3();
 const phi = THREE.MathUtils.degToRad(90 - sunElevation); 
@@ -78,7 +79,7 @@ initUI({
 
 window.addEventListener('loadParticles', (e) => updateAllOrbParticles(e.detail));
 
-// ENEMIGO GLOBAL
+// VARIABLE GLOBAL DEL ENEMIGO
 let enemy = null;
 
 const loadingManager = new THREE.LoadingManager();
@@ -86,27 +87,9 @@ loadLevel(scene, loadingManager, './assets/models/MN_SCENE_01.gltf');
 loadPlayer(scene, loadingManager);
 
 loadingManager.onLoad = () => {
-    console.log("Escena cargada. Buscando área de vuelo...");
-    
-    // Buscar el objeto específico para el área de vuelo
-    let flightArea = null;
-    
-    // Buscamos en los collisionMeshes o en la escena general si se cargó aparte
-    scene.traverse(obj => {
-        if (obj.name.includes("area_mascara_alada")) {
-            flightArea = obj;
-            obj.visible = false; // Ocultarlo
-        }
-    });
-
-    // Si no lo encuentra, usamos un fallback (o el primer emisor de hierba)
-    if (!flightArea && levelState.grassEmitterMeshes.length > 0) {
-        console.warn("No se encontró 'area_mascara_alada', usando fallback.");
-        flightArea = levelState.grassEmitterMeshes[0];
-    }
-
-    console.log("Creando enemigo con área:", flightArea ? flightArea.name : "Ninguna");
-    enemy = new Enemy(scene, playerState.container, flightArea);
+    console.log("Escena cargada. Creando enemigo...");
+    // AHORA PASAMOS LOS EMISORES DE HIERBA PARA CALCULAR LÍMITES
+    enemy = new Enemy(scene, playerState.container, levelState.grassEmitterMeshes);
 };
 
 const unlockAudio = async () => {
@@ -131,7 +114,7 @@ const unlockAudio = async () => {
 };
 window.addEventListener('click', unlockAudio);
 
-// LÓGICA DE JUEGO
+// --- LÓGICA DE JUEGO ---
 let questState = 0; let currentPhase = 0; let cinematicStartTime = 0; let orbsLaunched = false;
 const raycaster = new THREE.Raycaster(); const clock = new THREE.Clock(); 
 
@@ -216,7 +199,7 @@ function animate() {
     if(questState !== 2) updateOrbsLogic(dt, elapsedTime, playerPos, camera.position, cTime, currentPhase);
 
     if (playerState.container) {
-        // ACTUALIZACIÓN ENEMIGO
+        // ACTUALIZAMOS EL ENEMIGO
         if (enemy) enemy.update(dt, elapsedTime);
 
         sunLight.target.position.set(0, 0, playerState.container.position.z); sunLight.target.updateMatrixWorld(); sunLight.position.copy(sunLight.target.position).add(sunOffset);
@@ -226,7 +209,9 @@ function animate() {
         
         const isCamActive = (questState === 1);
         
+        // PASAMOS 'enemy' A updatePlayer
         updatePlayer(dt, camera, inputState.joystickVector, levelState.collisionMeshes, isCamActive, enemy);
+        
         updateSmartCamera(camera, playerState.container, levelState.collisionMeshes, dt, levelState.doorsCenter);
     }
     if (levelState.sceneMixer) levelState.sceneMixer.update(dt);
