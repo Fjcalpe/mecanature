@@ -78,38 +78,35 @@ initUI({
 
 window.addEventListener('loadParticles', (e) => updateAllOrbParticles(e.detail));
 
-// ENEMIGOS
-let enemies = [];
+// ENEMIGO GLOBAL
+let enemy = null;
 
 const loadingManager = new THREE.LoadingManager();
 loadLevel(scene, loadingManager, './assets/models/MN_SCENE_01.gltf');
 loadPlayer(scene, loadingManager);
 
 loadingManager.onLoad = () => {
-    console.log("Escena cargada. Creando enemigos...");
+    console.log("Escena cargada. Buscando área de vuelo...");
     
-    // Crear Enemigo A (Usa Ref A pero Path B para cruzar)
-    if (levelState.enemyData.refA) {
-        const enemyA = new Enemy(scene, {
-            refObject: levelState.enemyData.refA,
-            pathPoints: levelState.enemyData.pathB, // <--- CAMBIO AQUÍ (Antes pathA)
-            mixer: levelState.sceneMixer,
-            introClip: levelState.enemyData.animClipA
-        });
-        enemies.push(enemyA);
+    // Buscar el objeto específico para el área de vuelo
+    let flightArea = null;
+    
+    // Buscamos en los collisionMeshes o en la escena general si se cargó aparte
+    scene.traverse(obj => {
+        if (obj.name.includes("area_mascara_alada")) {
+            flightArea = obj;
+            obj.visible = false; // Ocultarlo
+        }
+    });
+
+    // Si no lo encuentra, usamos un fallback (o el primer emisor de hierba)
+    if (!flightArea && levelState.grassEmitterMeshes.length > 0) {
+        console.warn("No se encontró 'area_mascara_alada', usando fallback.");
+        flightArea = levelState.grassEmitterMeshes[0];
     }
 
-    // Crear Enemigo B (Usa Ref B pero Path A para cruzar)
-    if (levelState.enemyData.refB) {
-        const enemyB = new Enemy(scene, {
-            refObject: levelState.enemyData.refB,
-            pathPoints: levelState.enemyData.pathA, // <--- CAMBIO AQUÍ (Antes pathB)
-            mixer: levelState.sceneMixer,
-            introClip: levelState.enemyData.animClipB
-        });
-        enemies.push(enemyB);
-    }
-    console.log("Enemigos creados:", enemies.length);
+    console.log("Creando enemigo con área:", flightArea ? flightArea.name : "Ninguna");
+    enemy = new Enemy(scene, playerState.container, flightArea);
 };
 
 const unlockAudio = async () => {
@@ -166,14 +163,8 @@ function updateQuestLogic(dt, time) {
         }
     } else if (questState === 1) {
         const cinTime = time - cinematicStartTime; 
-        
-        if (cinTime > 5.0 && !orbsLaunched) { 
-            launchOrbs(camera.position, time); 
-            orbsLaunched = true; 
-            enemies.forEach(e => e.startIntro());
-        } 
-        
-        if (cinTime > 9.5) { 
+        if (cinTime > 5.0 && !orbsLaunched) { launchOrbs(camera.position, time); orbsLaunched = true; } 
+        if (cinTime > 6.5) { 
             startCameraReturn(camera, playerState.container.position, levelState.doorsCenter); 
             questState = 2; 
             startOrbMelodies();
@@ -225,7 +216,8 @@ function animate() {
     if(questState !== 2) updateOrbsLogic(dt, elapsedTime, playerPos, camera.position, cTime, currentPhase);
 
     if (playerState.container) {
-        enemies.forEach(e => e.update(dt, playerState.container));
+        // ACTUALIZACIÓN ENEMIGO
+        if (enemy) enemy.update(dt, elapsedTime);
 
         sunLight.target.position.set(0, 0, playerState.container.position.z); sunLight.target.updateMatrixWorld(); sunLight.position.copy(sunLight.target.position).add(sunOffset);
         if (levelState.bgMesh) levelState.bgMesh.position.copy(camera.position);
@@ -234,7 +226,7 @@ function animate() {
         
         const isCamActive = (questState === 1);
         
-        updatePlayer(dt, camera, inputState.joystickVector, levelState.collisionMeshes, isCamActive, enemies);
+        updatePlayer(dt, camera, inputState.joystickVector, levelState.collisionMeshes, isCamActive, enemy);
         updateSmartCamera(camera, playerState.container, levelState.collisionMeshes, dt, levelState.doorsCenter);
     }
     if (levelState.sceneMixer) levelState.sceneMixer.update(dt);

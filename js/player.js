@@ -65,7 +65,6 @@ export function loadPlayer(scene, loadingManager) {
         rawMesh.scale.set(1.2, 1.2, 1.2);
         
         playerState.container = new THREE.Group();
-        // Usamos la posición de inicio nueva (-6, 4, 0)
         playerState.container.position.set(-6, 4, 0);
         scene.add(playerState.container);
 
@@ -107,15 +106,10 @@ export function jump() {
         
         if (playerState.standingOnEnemy) {
             playerState.momentum.copy(playerState.standingOnEnemy.velocity);
-            
-            // Al saltar desde la máscara, limpiamos rotación visual
             playerState.visualMesh.rotation.set(0,0,0);
-            
-            // Orientamos el salto hacia adelante
             const velDir = playerState.standingOnEnemy.velocity.clone().normalize();
             if (velDir.lengthSq() > 0.01) {
                  const angle = Math.atan2(velDir.x, velDir.z);
-                 // Reseteamos el contenedor a vertical puro
                  const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), angle);
                  playerState.container.quaternion.copy(q);
             }
@@ -143,7 +137,7 @@ export function takeDamage() {
     });
 }
 
-export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCinematic, enemy) {
+export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCinematic, enemies) {
     if (!playerState.container || !playerState.visualMesh) return;
 
     if (isCinematic) {
@@ -173,55 +167,53 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
         playerState.speed = 0;
     }
 
-    // --- INTERACCIÓN CON ENEMIGO ---
+    // --- INTERACCIÓN CON ARRAY DE ENEMIGOS ---
     let isOnEnemy = false;
     
-    if (enemy && enemy.state === 'alive' && enemy.mesh && enemy.collisionTop) {
-        enemy.collisionTop.updateMatrixWorld(); 
-
-        let exactHit = false;
-        const rayDown = new THREE.Raycaster(playerState.container.position.clone().add(new THREE.Vector3(0, 1.0, 0)), new THREE.Vector3(0, -1, 0), 0, 1.5);
-        const hits = rayDown.intersectObject(enemy.collisionTop);
-        if (hits.length > 0) exactHit = true;
-
-        const distHorizontal = Math.hypot(playerState.container.position.x - enemy.mesh.position.x, playerState.container.position.z - enemy.mesh.position.z);
-        const isCloseEnough = distHorizontal < 1.4; 
-        const relativeY = playerState.container.position.y - enemy.mesh.position.y;
-        const isAbove = relativeY > 0 && relativeY < 2.5;
-
-        // ESTAMOS SOBRE LA MÁSCARA
-        if ((playerState.velocityY <= 0 && (exactHit || (isCloseEnough && isAbove))) || playerState.standingOnEnemy) {
+    if (enemies && enemies.length > 0) {
+        for(let enemy of enemies) {
+            if (enemy.state === 'dead' || !enemy.mesh || !enemy.collisionTop) continue;
             
-            if (!playerState.standingOnEnemy) enemy.takeDamage(); 
+            enemy.collisionTop.updateMatrixWorld(); 
 
-            isOnEnemy = true;
-            playerState.standingOnEnemy = enemy;
-            playerState.isGrounded = true;
-            playerState.velocityY = 0;
+            let exactHit = false;
+            const rayDown = new THREE.Raycaster(playerState.container.position.clone().add(new THREE.Vector3(0, 1.0, 0)), new THREE.Vector3(0, -1, 0), 0, 1.5);
+            const hits = rayDown.intersectObject(enemy.collisionTop);
+            if (hits.length > 0) exactHit = true;
 
-            // Anclaje: Copiar posición y rotación exactas
-            const targetPos = new THREE.Vector3();
-            enemy.collisionTop.getWorldPosition(targetPos);
-            playerState.container.position.copy(targetPos);
-            
-            const targetQuat = new THREE.Quaternion();
-            enemy.collisionTop.getWorldQuaternion(targetQuat);
-            playerState.container.quaternion.copy(targetQuat);
-            
-            // Reseteamos rotación interna por si acaso
-            playerState.visualMesh.rotation.set(0,0,0);
-            
-            // Limpiamos momentum
-            playerState.momentum.set(0, 0, 0);
+            const distHorizontal = Math.hypot(playerState.container.position.x - enemy.mesh.position.x, playerState.container.position.z - enemy.mesh.position.z);
+            const isCloseEnough = distHorizontal < 1.4; 
+            const relativeY = playerState.container.position.y - enemy.mesh.position.y;
+            const isAbove = relativeY > 0 && relativeY < 2.5;
+
+            if ((playerState.velocityY <= 0 && (exactHit || (isCloseEnough && isAbove))) || playerState.standingOnEnemy === enemy) {
+                
+                if (playerState.standingOnEnemy !== enemy) enemy.takeDamage(); 
+
+                isOnEnemy = true;
+                playerState.standingOnEnemy = enemy;
+                playerState.isGrounded = true;
+                playerState.velocityY = 0;
+
+                const targetPos = new THREE.Vector3();
+                enemy.collisionTop.getWorldPosition(targetPos);
+                playerState.container.position.copy(targetPos);
+                
+                const targetQuat = new THREE.Quaternion();
+                enemy.collisionTop.getWorldQuaternion(targetQuat);
+                playerState.container.quaternion.copy(targetQuat);
+                
+                playerState.visualMesh.rotation.set(0,0,0);
+                playerState.momentum.set(0, 0, 0);
+                
+                break; // Solo podemos estar sobre un enemigo a la vez
+            }
         }
     }
 
-    // --- MOVIMIENTO SUELO (LÓGICA RESTAURADA DE PLAYER_VIEJO.JS) ---
+    // --- MOVIMIENTO SUELO ---
     if (!isOnEnemy) {
         playerState.standingOnEnemy = null;
-        
-        // RESET DE ROTACIONES PARÁSITAS (Esto arregla el correr de lado)
-        // Aseguramos que el modelo interno esté recto
         playerState.visualMesh.rotation.set(0,0,0);
 
         if (playerState.isMoving) {
@@ -232,20 +224,15 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
             
             const ray = new THREE.Raycaster(playerState.container.position.clone().add(new THREE.Vector3(0,1,0)), finalDir, 0, 0.8);
             if (ray.intersectObjects(collisionMeshes, true).length === 0) {
-                // Movimiento directo (sin acumuladores raros)
                 playerState.container.position.addScaledVector(finalDir, playerState.speed * dt);
             }
-            
-            // Rotación pura en Y (Slerp) - Esto endereza al personaje si estaba torcido
             playerState.container.quaternion.slerp(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(finalDir.x, finalDir.z)), 10 * dt);
         }
 
-        // MOMENTUM (INERCIA DE SALTO)
         if (!playerState.isGrounded) {
             playerState.container.position.addScaledVector(playerState.momentum, dt);
         }
 
-        // GRAVEDAD Y COLISIÓN SUELO
         playerState.velocityY += gravity * dt;
         const propY = playerState.container.position.y + playerState.velocityY * dt;
         const floorInfo = getFloorInfo(playerState.container.position, playerState.container.position.y, collisionMeshes);
@@ -255,9 +242,8 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
             playerState.container.position.y = floorInfo.y;
             playerState.velocityY = 0;
             playerState.isGrounded = true;
-            playerState.momentum.set(0,0,0); // Fricción suelo
+            playerState.momentum.set(0,0,0); 
         } else if (playerState.isGrounded && distToFloor < 0.4 && playerState.velocityY <= 0) {
-            // Snap al suelo si bajamos una pendiente
             playerState.container.position.y = floorInfo.y;
             playerState.velocityY = 0;
         } else {
@@ -265,17 +251,14 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
             playerState.isGrounded = false;
         }
 
-        // SURFACE TYPE
         if (playerState.isGrounded && floorInfo.object) {
             const name = floorInfo.object.name.toLowerCase();
             playerState.currentSurface = (name.includes("consola") || name.includes("plataforma") || name.includes("mirador")) ? 'stone' : 'grass';
         }
     } else {
-        // Si estamos en enemigo, superficie piedra
         playerState.currentSurface = 'stone';
     }
 
-    // ANIMACIONES
     if (playerState.mixer) {
         let nextActionName = 'Idle';
         if (!playerState.isGrounded && !isOnEnemy) nextActionName = 'Jump';
