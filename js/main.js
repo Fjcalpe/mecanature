@@ -1,10 +1,18 @@
 import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
 import { loadPlayer, updatePlayer, playerState, jump, shoot, unlockPlayerAudio } from './player.js'; 
 import { updateSmartCamera, camSettings, startCameraCinematic, startCameraReturn } from './camera.js';
-import { loadLevel, levelState, spawnOrbsAtDoor, launchOrbs, updateOrbsLogic, generateInstancedGrass, updateAllOrbParticles, unlockLevelAudio, playOrbAppearSound, startOrbMelodies } from './level.js'; 
+import { loadLevel, levelState, spawnOrbsAtDoor, launchOrbs, updateOrbsLogic, generateInstancedGrass, updateAllOrbParticles, unlockLevelAudio, playOrbAppearSound, startOrbMelodies, resetCollectedOrbs, unloadCurrentLevel } from './level.js'; 
 import { InGameEditor } from './editor_ui.js'; 
 import { initUI, inputState, fpsDisplay, msgDisplay, initQualityHUD } from './ui_manager.js';
 import { Enemy } from './enemy.js'; 
+
+const freqHint = document.getElementById('freq-hint');
+const jumpHint = document.getElementById('jump-hint');
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0xeecfa1, 0.022);
@@ -19,6 +27,24 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.enabled = true; 
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
+
+// --- CONFIGURACIÓN POST-PROCESADO (AO) ---
+const composer = new EffectComposer(renderer);
+const renderPass = new RenderPass(scene, camera);
+composer.addPass(renderPass);
+
+const gtaoPass = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight);
+// CORRECCIÓN: Eliminada la línea problemática 'gtaoPass.output.encoding'
+// El OutputPass al final de la cadena se encarga de la corrección de color.
+gtaoPass.blendIntensity = 1.0; 
+gtaoPass.radius = 5.0; 
+gtaoPass.enabled = false; 
+composer.addPass(gtaoPass);
+
+const outputPass = new OutputPass();
+composer.addPass(outputPass);
+
+let useAO = false; 
 
 // ILUMINACIÓN
 const sunDistance = 50; const sunElevation = 13; const sunRotation = 270; 
@@ -44,22 +70,12 @@ new THREE.TextureLoader().load('./assets/textures/bg_reflejosIBL.webp', (t) => {
 });
 
 function applyGraphicsSettings(quality) {
-    console.log("Cambiando calidad a:", quality);
     if (quality === 'high') {
-        levelState.grassParams.count = 2000;
-        sunLight.shadow.mapSize.set(2048, 2048);
-        renderer.shadowMap.enabled = true;
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+        levelState.grassParams.count = 2000; sunLight.shadow.mapSize.set(2048, 2048); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     } else if (quality === 'medium') {
-        levelState.grassParams.count = 1000;
-        sunLight.shadow.mapSize.set(1024, 1024);
-        renderer.shadowMap.enabled = true;
-        renderer.setPixelRatio(1.0);
+        levelState.grassParams.count = 1000; sunLight.shadow.mapSize.set(1024, 1024); renderer.setPixelRatio(1.0);
     } else if (quality === 'low') {
-        levelState.grassParams.count = 500;
-        sunLight.shadow.mapSize.set(512, 512); 
-        renderer.shadowMap.enabled = true;     
-        renderer.setPixelRatio(0.8);
+        levelState.grassParams.count = 500; sunLight.shadow.mapSize.set(512, 512); renderer.setPixelRatio(0.8);
     }
     if(sunLight.shadow.map) { sunLight.shadow.map.dispose(); sunLight.shadow.map = null; }
     generateInstancedGrass(scene);
@@ -67,74 +83,111 @@ function applyGraphicsSettings(quality) {
 
 initQualityHUD(applyGraphicsSettings);
 
+let enemies = []; 
+let isChangingLevel = false;
+
+function switchLevel(levelId) {
+    if(isChangingLevel) return;
+    isChangingLevel = true;
+
+    const file = levelId === 1 ? './assets/models/MN_SCENE_01.gltf' : './assets/models/Escenario_2.gltf';
+    
+    document.body.classList.add('faded-out');
+
+    setTimeout(() => {
+        enemies.forEach(e => {
+            if(e.mesh) scene.remove(e.mesh);
+            e.lasers.forEach(l => scene.remove(l.mesh));
+        });
+        enemies = [];
+        
+        unloadCurrentLevel(scene);
+
+        loadLevel(scene, loadingManager, file, () => {
+            if (levelId === 2 && levelState.startPosition) {
+                playerState.container.position.copy(levelState.startPosition);
+            } else if (levelId === 1) {
+                playerState.container.position.set(-6, 4, 0); 
+            }
+            playerState.velocity.set(0,0,0); 
+            playerState.momentum.set(0,0,0);
+
+            if (levelState.enemyData.refA) {
+                enemies.push(new Enemy(scene, {
+                    refObject: levelState.enemyData.refA, pathPoints: levelState.enemyData.pathB, mixer: levelState.sceneMixer, introClip: levelState.enemyData.animClipA
+                }, onPlayerHit));
+            }
+            if (levelState.enemyData.refB) {
+                enemies.push(new Enemy(scene, {
+                    refObject: levelState.enemyData.refB, pathPoints: levelState.enemyData.pathA, mixer: levelState.sceneMixer, introClip: levelState.enemyData.animClipB
+                }, onPlayerHit));
+            }
+
+            if(levelId === 1) {
+                questState = 0; currentPhase = 0; orbsLaunched = false;
+                if(msgDisplay) msgDisplay.style.display = 'none';
+            } else {
+                questState = 4; 
+                if(msgDisplay) msgDisplay.style.display = 'none';
+            }
+
+            document.body.classList.remove('faded-out');
+            isChangingLevel = false;
+        });
+    }, 1000); 
+}
+
 let audioAmbient = null;
 let audioUnlocked = false; 
 
 initUI({
     onJump: jump,
     onShoot: () => shoot(scene),
-    onGrassChange: (val) => { levelState.grassParams.count = val; generateInstancedGrass(scene); }
+    onLevelSelect: (lvl) => switchLevel(lvl),
+    onAOToggle: (isActive) => {
+        useAO = isActive;
+        gtaoPass.enabled = isActive;
+        console.log("Ambient Occlusion:", isActive ? "ON" : "OFF");
+    }
 });
 
 window.addEventListener('loadParticles', (e) => updateAllOrbParticles(e.detail));
 
-// ENEMIGOS
-let enemies = [];
+const onPlayerHit = () => {
+    if (questState === 2) {
+        currentPhase = resetCollectedOrbs();
+    }
+};
 
 const loadingManager = new THREE.LoadingManager();
-loadLevel(scene, loadingManager, './assets/models/MN_SCENE_01.gltf');
-loadPlayer(scene, loadingManager);
-
-loadingManager.onLoad = () => {
-    console.log("Escena cargada. Creando enemigos...");
-    
-    // Crear Enemigo A (Usa Ref A pero Path B para cruzar)
+loadLevel(scene, loadingManager, './assets/models/MN_SCENE_01.gltf', () => {
     if (levelState.enemyData.refA) {
-        const enemyA = new Enemy(scene, {
-            refObject: levelState.enemyData.refA,
-            pathPoints: levelState.enemyData.pathB, // <--- CAMBIO AQUÍ (Antes pathA)
-            mixer: levelState.sceneMixer,
-            introClip: levelState.enemyData.animClipA
-        });
-        enemies.push(enemyA);
+        enemies.push(new Enemy(scene, {
+            refObject: levelState.enemyData.refA, pathPoints: levelState.enemyData.pathB, mixer: levelState.sceneMixer, introClip: levelState.enemyData.animClipA
+        }, onPlayerHit));
     }
-
-    // Crear Enemigo B (Usa Ref B pero Path A para cruzar)
     if (levelState.enemyData.refB) {
-        const enemyB = new Enemy(scene, {
-            refObject: levelState.enemyData.refB,
-            pathPoints: levelState.enemyData.pathA, // <--- CAMBIO AQUÍ (Antes pathB)
-            mixer: levelState.sceneMixer,
-            introClip: levelState.enemyData.animClipB
-        });
-        enemies.push(enemyB);
+        enemies.push(new Enemy(scene, {
+            refObject: levelState.enemyData.refB, pathPoints: levelState.enemyData.pathA, mixer: levelState.sceneMixer, introClip: levelState.enemyData.animClipB
+        }, onPlayerHit));
     }
-    console.log("Enemigos creados:", enemies.length);
-};
+});
+loadPlayer(scene, loadingManager);
 
 const unlockAudio = async () => {
     await Tone.start();
-    console.log("Tone.js Context Started");
     audioUnlocked = true; 
-
     if(!audioAmbient) {
-        audioAmbient = new Tone.Player({
-            url: './assets/sound/forest.mp3',
-            loop: true,
-            volume: -10 
-        }).toDestination();
+        audioAmbient = new Tone.Player({ url: './assets/sound/forest.mp3', loop: true, volume: -10 }).toDestination();
         audioAmbient.autostart = true; 
     }
-
     unlockPlayerAudio();
     unlockLevelAudio();
-
     window.removeEventListener('click', unlockAudio);
     if(msgDisplay && msgDisplay.innerText.includes("clic")) msgDisplay.style.display = 'none';
 };
 window.addEventListener('click', unlockAudio);
 
-// LÓGICA DE JUEGO
 let questState = 0; let currentPhase = 0; let cinematicStartTime = 0; let orbsLaunched = false;
 const raycaster = new THREE.Raycaster(); const clock = new THREE.Clock(); 
 
@@ -166,23 +219,9 @@ function updateQuestLogic(dt, time) {
         }
     } else if (questState === 1) {
         const cinTime = time - cinematicStartTime; 
-        
-        if (cinTime > 5.0 && !orbsLaunched) { 
-            launchOrbs(camera.position, time); 
-            orbsLaunched = true; 
-            enemies.forEach(e => e.startIntro());
-        } 
-        
-        if (cinTime > 9.5) { 
-            startCameraReturn(camera, playerState.container.position, levelState.doorsCenter); 
-            questState = 2; 
-            startOrbMelodies();
-        }
+        if (cinTime > 5.0 && !orbsLaunched) { launchOrbs(camera.position, time); orbsLaunched = true; enemies.forEach(e => e.startIntro()); } 
+        if (cinTime > 9.5) { startCameraReturn(camera, playerState.container.position, levelState.doorsCenter); questState = 2; startOrbMelodies(); if(freqHint) { freqHint.style.display = 'block'; setTimeout(() => { freqHint.style.display = 'none'; }, 4000); } }
     } else if (questState === 2) {
-        const playerPos = playerState.container.position;
-        const phaseUp = updateOrbsLogic(dt, time, playerPos, camera.position, 0, currentPhase);
-        if(phaseUp) currentPhase++;
-
         let collectedCount = 0;
         const playerBack = new THREE.Vector3(0, 0, -1).applyQuaternion(playerState.container.quaternion).normalize();
 
@@ -203,11 +242,13 @@ function updateQuestLogic(dt, time) {
                     levelState.orbs.forEach(o => { o.mesh.visible = false; if(o.particles) o.particles.stop(); });
                     levelState.doorActions.forEach(a => a.play()); 
                     if(msgDisplay) { msgDisplay.innerText = "PUERTA ABIERTA"; msgDisplay.style.display = 'block'; } 
-                } else { 
-                    if(msgDisplay) { msgDisplay.innerText = "QUIETO EN EL ALTAR"; msgDisplay.style.display = 'block'; } 
-                } 
+                } else { if(msgDisplay) { msgDisplay.innerText = "QUIETO EN EL ALTAR"; msgDisplay.style.display = 'block'; } } 
             } else { if(msgDisplay) { msgDisplay.innerText = "VUELVE AL ALTAR"; msgDisplay.style.display = 'block'; } }
         } else { if(msgDisplay && !msgDisplay.innerText.includes("clic")) msgDisplay.style.display = 'none'; }
+    } else if (questState === 3) {
+        if (playerState.container.position.z > levelState.doorsCenter.z + 2.0) {
+            switchLevel(2);
+        }
     }
 }
 
@@ -220,12 +261,30 @@ function animate() {
     frames++; if (perfTime >= lastTime + 1000) { if(fpsDisplay) fpsDisplay.innerText = "FPS: " + frames; frames = 0; lastTime = perfTime; }
 
     const playerPos = playerState.container ? playerState.container.position : new THREE.Vector3(0,0,0);
-    let cTime = 0; if(questState===1) cTime = elapsedTime - cinematicStartTime;
     
-    if(questState !== 2) updateOrbsLogic(dt, elapsedTime, playerPos, camera.position, cTime, currentPhase);
+    let cTime = 0; 
+    if(questState === 1) cTime = elapsedTime - cinematicStartTime;
+
+    if(questState !== 3 && questState !== 4) {
+        const phaseUp = updateOrbsLogic(dt, elapsedTime, playerPos, camera.position, cTime, currentPhase);
+        if (questState === 2 && phaseUp) {
+            currentPhase++;
+        }
+    }
 
     if (playerState.container) {
-        enemies.forEach(e => e.update(dt, playerState.container));
+        let closeToEnemy = false;
+        enemies.forEach(e => {
+            e.update(dt, playerState.container);
+            if (e.state !== 'dead' && e.mesh) {
+                const d = playerState.container.position.distanceTo(e.mesh.position);
+                if (d < 5.0) closeToEnemy = true;
+            }
+        });
+
+        if (jumpHint) {
+            jumpHint.style.display = (closeToEnemy && questState === 2) ? 'block' : 'none';
+        }
 
         sunLight.target.position.set(0, 0, playerState.container.position.z); sunLight.target.updateMatrixWorld(); sunLight.position.copy(sunLight.target.position).add(sunOffset);
         if (levelState.bgMesh) levelState.bgMesh.position.copy(camera.position);
@@ -239,10 +298,17 @@ function animate() {
     }
     if (levelState.sceneMixer) levelState.sceneMixer.update(dt);
     if (levelState.grassMaterialUniforms) levelState.grassMaterialUniforms.time.value = elapsedTime;
-    renderer.render(scene, camera);
+    
+    if (useAO) {
+        composer.render();
+    } else {
+        renderer.render(scene, camera);
+    }
 }
 
 window.addEventListener('resize', () => { 
-    camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); 
+    camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); 
+    renderer.setSize(window.innerWidth, window.innerHeight); 
+    composer.setSize(window.innerWidth, window.innerHeight); 
 });
 animate();

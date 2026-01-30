@@ -122,19 +122,48 @@ export function jump() {
     }
 }
 
+let isDamageBlinking = false;
 export function takeDamage() {
     if (!playerState.visualMesh) return;
+    if (isDamageBlinking) return; // Evitar solapamientos
+
+    isDamageBlinking = true;
+    let blinkCount = 0;
+    const maxBlinks = 10; // 10 parpadeos de 100ms = 1 segundo total
+    const intervalTime = 100;
+
     playerState.visualMesh.traverse(child => {
         if(child.isMesh && child.material) {
-            if (!child.userData.origEmissive) child.userData.origEmissive = child.material.emissive ? child.material.emissive.getHex() : 0x000000;
-            if (child.material.emissive) {
-                child.material.emissive.setHex(0xff0000);
-                setTimeout(() => {
-                    if(child.material) child.material.emissive.setHex(child.userData.origEmissive);
-                }, 200);
+            if (!child.userData.origEmissive) {
+                child.userData.origEmissive = child.material.emissive ? child.material.emissive.getHex() : 0x000000;
             }
         }
     });
+
+    const blinkInterval = setInterval(() => {
+        blinkCount++;
+        const isRed = (blinkCount % 2 !== 0); 
+
+        playerState.visualMesh.traverse(child => {
+            if(child.isMesh && child.material && child.material.emissive) {
+                if(isRed) {
+                    child.material.emissive.setHex(0xff0000);
+                } else {
+                    child.material.emissive.setHex(child.userData.origEmissive);
+                }
+            }
+        });
+
+        if (blinkCount >= maxBlinks) {
+            clearInterval(blinkInterval);
+            isDamageBlinking = false;
+            playerState.visualMesh.traverse(child => {
+                if(child.isMesh && child.material && child.material.emissive) {
+                    child.material.emissive.setHex(child.userData.origEmissive);
+                }
+            });
+        }
+    }, intervalTime);
 }
 
 export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCinematic, enemies) {
@@ -152,7 +181,6 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
 
     if (playerState.landingCooldown > 0) playerState.landingCooldown -= dt;
     
-    // --- INPUT ---
     let inputX = joystickVector.x; let inputY = joystickVector.y;
     if (keyStates.w) inputY -= 1; if (keyStates.s) inputY += 1;
     if (keyStates.a) inputX -= 1; if (keyStates.d) inputX += 1;
@@ -167,7 +195,6 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
         playerState.speed = 0;
     }
 
-    // --- INTERACCIÓN CON ARRAY DE ENEMIGOS ---
     let isOnEnemy = false;
     
     if (enemies && enemies.length > 0) {
@@ -177,14 +204,14 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
             enemy.collisionTop.updateMatrixWorld(); 
 
             let exactHit = false;
-            const rayDown = new THREE.Raycaster(playerState.container.position.clone().add(new THREE.Vector3(0, 1.0, 0)), new THREE.Vector3(0, -1, 0), 0, 1.5);
+            const rayDown = new THREE.Raycaster(playerState.container.position.clone().add(new THREE.Vector3(0, 1.0, 0)), new THREE.Vector3(0, -1, 0), 0, 2.5);
             const hits = rayDown.intersectObject(enemy.collisionTop);
             if (hits.length > 0) exactHit = true;
 
             const distHorizontal = Math.hypot(playerState.container.position.x - enemy.mesh.position.x, playerState.container.position.z - enemy.mesh.position.z);
-            const isCloseEnough = distHorizontal < 1.4; 
+            const isCloseEnough = distHorizontal < 2.5; 
             const relativeY = playerState.container.position.y - enemy.mesh.position.y;
-            const isAbove = relativeY > 0 && relativeY < 2.5;
+            const isAbove = relativeY > -0.5 && relativeY < 4.0;
 
             if ((playerState.velocityY <= 0 && (exactHit || (isCloseEnough && isAbove))) || playerState.standingOnEnemy === enemy) {
                 
@@ -206,12 +233,11 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
                 playerState.visualMesh.rotation.set(0,0,0);
                 playerState.momentum.set(0, 0, 0);
                 
-                break; // Solo podemos estar sobre un enemigo a la vez
+                break; 
             }
         }
     }
 
-    // --- MOVIMIENTO SUELO ---
     if (!isOnEnemy) {
         playerState.standingOnEnemy = null;
         playerState.visualMesh.rotation.set(0,0,0);
@@ -227,6 +253,13 @@ export function updatePlayer(dt, camera, joystickVector, collisionMeshes, isCine
                 playerState.container.position.addScaledVector(finalDir, playerState.speed * dt);
             }
             playerState.container.quaternion.slerp(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(finalDir.x, finalDir.z)), 10 * dt);
+        } else {
+            // MODIFICACIÓN: Si no estamos sobre un enemigo ni moviéndonos, enderezamos el personaje
+            // para evitar que se quede inclinado tras caer de un enemigo.
+            const currentEuler = new THREE.Euler().setFromQuaternion(playerState.container.quaternion, 'YXZ');
+            // Mantenemos solo la rotación Y (Yaw) y ponemos X y Z a 0
+            const uprightQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, currentEuler.y, 0));
+            playerState.container.quaternion.slerp(uprightQuat, 10 * dt);
         }
 
         if (!playerState.isGrounded) {

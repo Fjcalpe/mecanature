@@ -25,13 +25,13 @@ export const levelState = {
     parametricMesh: null, levelMesh: null,
     grassSource: { geometry: null, material: null, scale: new THREE.Vector3(1,1,1) },
     grassMaterialUniforms: { time: { value: 0 } }, grassParams: { count: 2000 },
-    
-    // DATOS ENEMIGOS
-    enemyData: {
-        refA: null, pathA: [], animClipA: null,
-        refB: null, pathB: [], animClipB: null
-    }
+    enemyData: { refA: null, pathA: [], animClipA: null, refB: null, pathB: [], animClipB: null },
+    // FIJADO A 2.5
+    laserHitRadius: 2.5,
+    startPosition: null 
 };
+
+// Eliminada setLaserRadius porque ya no hay slider
 
 let playerSelect = null, playerAppear = null;
 function initGlobalSFX() {
@@ -62,41 +62,67 @@ class OrbLogic {
     }
 
     spawnStacked(basePos, playerPos) {
-        this.state = 'cinematic_stack'; this.collected = false;
+        this.state = 'cinematic_stack'; 
+        this.collected = false;
+        
         const config = ORB_PHASES[this.id];
-        this.mesh.material.color.setHex(config.color); this.light.color.setHex(config.color);
+        this.mesh.material.color.setHex(config.color); 
+        this.light.color.setHex(config.color);
+        
         const toDoor = new THREE.Vector3().subVectors(basePos, playerPos).normalize();
-        this.startCinematicPos.copy(playerPos).add(toDoor.multiplyScalar(2.0)); this.startCinematicPos.y += 1.5; 
-        this.mesh.position.copy(this.startCinematicPos); this.mesh.position.y += (this.id * 0.6); 
-        const up = new THREE.Vector3(0, 1, 0); const right = new THREE.Vector3().crossVectors(toDoor, up).normalize();
-        this.cinematicTargetPos.copy(this.mesh.position); this.cinematicTargetPos.y += 2.0; 
+        this.startCinematicPos.copy(playerPos).add(toDoor.multiplyScalar(2.0)); 
+        this.startCinematicPos.y += 1.5; 
+        
+        this.mesh.position.copy(this.startCinematicPos); 
+        this.mesh.position.y += (this.id * 0.6); 
+        
+        const up = new THREE.Vector3(0, 1, 0); 
+        const right = new THREE.Vector3().crossVectors(toDoor, up).normalize();
+        
+        this.cinematicTargetPos.copy(this.mesh.position); 
+        this.cinematicTargetPos.y += 2.0; 
+        
         if (this.id === 0) this.cinematicTargetPos.addScaledVector(right, -3.0);
         else if (this.id === 1) this.cinematicTargetPos.y += 2.0; 
         else if (this.id === 2) this.cinematicTargetPos.addScaledVector(right, 3.0);
+
+        if(this.particles) {
+            this.particles.setPosition(this.mesh.position);
+            this.particles.start();
+            this.particles.update(0.1); 
+        }
+        this.mesh.visible = true;
     }
 
     launch(camPos, time) {
-        this.state = 'launching'; this.launchStartTime = time;
+        this.state = 'launching'; 
+        this.launchStartTime = time;
         const toCam = new THREE.Vector3().subVectors(camPos, this.mesh.position).normalize();
-        const up = new THREE.Vector3(0, 1, 0); const right = new THREE.Vector3().crossVectors(toCam, up).normalize();
+        const up = new THREE.Vector3(0, 1, 0); 
+        const right = new THREE.Vector3().crossVectors(toCam, up).normalize();
         const trueUp = new THREE.Vector3().crossVectors(right, toCam).normalize();
+        
         if (this.id === 0) this.divergeVec.copy(right).multiplyScalar(-1);
         if (this.id === 1) this.divergeVec.copy(trueUp);
         if (this.id === 2) this.divergeVec.copy(right);
+        
         this.launchVelocity.copy(toCam).multiplyScalar(20.0);
     }
 
     pickRandomTarget(bbox) {
-        const width = Math.max(20, bbox.max.x - bbox.min.x); const depth = Math.max(20, bbox.max.z - bbox.min.z);
-        this.target.set(bbox.min.x + Math.random() * width, 1.5 + Math.random() * 1.5, bbox.min.z + Math.random() * depth);
+        const width = Math.max(20, bbox.max.x - bbox.min.x); 
+        const depth = Math.max(20, bbox.max.z - bbox.min.z);
+        this.target.set(bbox.min.x + Math.random() * width, 1.6 + Math.random() * 2.5, bbox.min.z + Math.random() * depth);
     }
 
     update(dt, time, playerPos, camPos, cinematicTime, currentPhase) {
         if(this.particles) {
             this.particles.setPosition(this.mesh.position);
-            if(this.state !== 'hidden') this.particles.start(); else this.particles.stop();
+            if(this.state !== 'hidden') this.particles.start(); 
+            else this.particles.stop();
             this.particles.update(dt);
         }
+
         if (this.player.loaded && Tone.Transport.state === 'started') {
             const dist = this.mesh.position.distanceTo(playerPos);
             const maxRadius = 15;
@@ -105,40 +131,82 @@ class OrbLogic {
                 this.player.volume.rampTo(Tone.gainToDb(vol), 0.1);
             } else { this.player.volume.rampTo(-Infinity, 0.1); }
         }
-        if(this.state === 'hidden' || this.state === 'editor_mode') return;
+
+        if(this.state === 'hidden' || this.state === 'editor_mode') return false;
+
         if(this.state === 'cinematic_stack') {
             if (cinematicTime > 1.0) {
-                const t = Math.min(1.0, (cinematicTime - 1.0) / 1.5); const ease = t * t * (3 - 2 * t); 
-                const temp = this.startCinematicPos.clone(); temp.y += (this.id * 0.6);
-                this.mesh.position.lerpVectors(temp, this.cinematicTargetPos, ease);
-            } else { this.mesh.position.y = this.startCinematicPos.y + (this.id * 0.6) + Math.sin(time * 5) * 0.05; }
-            return;
+                const t = Math.min(1.0, (cinematicTime - 1.0) / 1.5); 
+                const ease = t * t * (3 - 2 * t); 
+                const start = this.startCinematicPos.clone();
+                start.y += (this.id * 0.6); 
+                this.mesh.position.lerpVectors(start, this.cinematicTargetPos, ease);
+            } else { 
+                this.mesh.position.y = this.startCinematicPos.y + (this.id * 0.6) + Math.sin(time * 5) * 0.05; 
+            }
+            return false; 
         }
+
         if (this.state === 'launching') {
             const distToCam = this.mesh.position.distanceTo(camPos);
             if (distToCam < 8.0) this.launchVelocity.addScaledVector(this.divergeVec, 80.0 * dt);
+            
             this.mesh.position.addScaledVector(this.launchVelocity, dt);
             if (this.mesh.position.y < 1.0) this.mesh.position.y = 1.0;
-            if (time - this.launchStartTime > 1.5) { this.state = 'flying'; this.pickRandomTarget(levelState.mapBoundingBox); }
-            return;
+            
+            if (time - this.launchStartTime > 1.5) { 
+                this.state = 'flying'; 
+                this.pickRandomTarget(levelState.mapBoundingBox); 
+            }
+            return false; 
         }
+
         if(this.state === 'flying') {
             const baseDir = new THREE.Vector3().subVectors(this.target, this.mesh.position).normalize();
-            baseDir.x += Math.sin(time * 2.0 + this.oscillationOffset) * 0.5; baseDir.z += Math.cos(time * 2.0 + this.oscillationOffset) * 0.5; baseDir.normalize();
+            baseDir.x += Math.sin(time * 2.0 + this.oscillationOffset) * 0.5; 
+            baseDir.z += Math.cos(time * 2.0 + this.oscillationOffset) * 0.5; 
+            baseDir.normalize();
+            
             this.mesh.position.addScaledVector(baseDir, 1.6 * dt);
+            
             if(this.mesh.position.distanceTo(this.target) < 2.0) this.pickRandomTarget(levelState.mapBoundingBox);
-            this.mesh.position.y = Math.max(1, Math.min(4.5, this.mesh.position.y));
-            if(this.id === currentPhase && playerPos.distanceTo(this.mesh.position) < 1.5) {
-                this.state = 'following'; this.collected = true; if(playerSelect && playerSelect.loaded) playerSelect.start(); return true; 
+            
+            this.mesh.position.y = Math.max(1.6, Math.min(5.0, this.mesh.position.y));
+
+            const pickupRadius = 2.0;
+            if(playerPos.distanceTo(this.mesh.position) < pickupRadius) {
+                if (this.id === currentPhase) {
+                    this.state = 'following'; 
+                    this.collected = true; 
+                    if(playerSelect && playerSelect.loaded) playerSelect.start(); 
+                    return true; 
+                }
             }
         }
         return false;
     }
 }
 
-export function updateOrbsLogic(dt, time, playerPos, camPos, cinematicTime, currentPhase) {
-    let phaseChanged = false; levelState.orbs.forEach(orb => { if(orb.update(dt, time, playerPos, camPos, cinematicTime, currentPhase)) phaseChanged = true; }); return phaseChanged;
+export function resetCollectedOrbs() {
+    console.log("¡Impacto! Reiniciando orbes...");
+    levelState.orbs.forEach(orb => {
+        orb.collected = false;
+        orb.state = 'flying';
+        orb.mesh.visible = true;
+        orb.pickRandomTarget(levelState.mapBoundingBox);
+        if(orb.particles) orb.particles.start();
+    });
+    return 0; 
 }
+
+export function updateOrbsLogic(dt, time, playerPos, camPos, cinematicTime, currentPhase) {
+    let phaseChanged = false; 
+    levelState.orbs.forEach(orb => { 
+        if(orb.update(dt, time, playerPos, camPos, cinematicTime, currentPhase)) phaseChanged = true; 
+    }); 
+    return phaseChanged;
+}
+
 export function spawnOrbsAtDoor(playerPos) { levelState.orbs.forEach(orb => orb.spawnStacked(levelState.doorsCenter, playerPos)); }
 export function launchOrbs(camPos, time) { levelState.orbs.forEach(orb => orb.launch(camPos, time)); }
 export function updateAllOrbParticles(pixiConfig) { levelState.orbs.forEach(orb => { if(orb.particles) orb.particles.importConfig(pixiConfig); }); }
@@ -146,7 +214,6 @@ export function playOrbAppearSound() { if(playerAppear && playerAppear.loaded) p
 export function startOrbMelodies() { if (Tone.Transport.state !== 'started') Tone.Transport.start(); }
 export function unlockLevelAudio() {}
 
-// --- LÓGICA DE EXTRACCIÓN Y LIMPIEZA DE PUNTOS ---
 function findGeometryForPath(obj) {
     let rawPoints = [];
     const collect = (o) => {
@@ -164,21 +231,16 @@ function findGeometryForPath(obj) {
     collect(obj);
     if (rawPoints.length === 0) return [];
 
-    // 2. FILTRADO INTELIGENTE (Anti-ZigZag)
-    // Reducido MIN_DIST a 0.05 para respetar más puntos del diseño original
     const MIN_DIST = 0.05; 
     let distFiltered = [rawPoints[0]];
-    
     for (let i = 1; i < rawPoints.length; i++) {
         const last = distFiltered[distFiltered.length - 1];
         if (rawPoints[i].distanceTo(last) > MIN_DIST) {
             distFiltered.push(rawPoints[i]);
         }
     }
-
     if (distFiltered.length < 3) return distFiltered;
 
-    // Filtro de Dirección (Elimina giros de 180º del extrude)
     let cleanPoints = [distFiltered[0]];
     cleanPoints.push(distFiltered[1]); 
     let currentDir = new THREE.Vector3().subVectors(distFiltered[1], distFiltered[0]).normalize();
@@ -187,9 +249,6 @@ function findGeometryForPath(obj) {
         const cand = distFiltered[i];
         const last = cleanPoints[cleanPoints.length - 1];
         const nextDir = new THREE.Vector3().subVectors(cand, last).normalize();
-        
-        // Si el producto punto es positivo, seguimos avanzando.
-        // Si es negativo o cero, es un giro brusco (zigzag del extrude) y lo ignoramos.
         if (currentDir.dot(nextDir) > 0.0) { 
             cleanPoints.push(cand);
             currentDir.copy(nextDir);
@@ -198,7 +257,7 @@ function findGeometryForPath(obj) {
     return cleanPoints;
 }
 
-export function loadLevel(scene, loadingManager, levelFile) {
+export function loadLevel(scene, loadingManager, levelFile, onLoadComplete) {
     initGlobalSFX();
     const loader = new GLTFLoader(loadingManager);
     
@@ -218,13 +277,21 @@ export function loadLevel(scene, loadingManager, levelFile) {
         levelState.sceneMixer = new THREE.AnimationMixer(masterModule);
         let doorsCount = 0;
         levelState.mapBoundingBox.makeEmpty();
-
+        levelState.startPosition = null; 
+        
         masterModule.updateMatrixWorld(true);
 
         masterModule.traverse((child) => {
             const name = child.name.toLowerCase();
-            
-            // 1. COLISIONES
+
+            if (child.name === "Character_init") {
+                const worldPos = new THREE.Vector3();
+                child.getWorldPosition(worldPos);
+                levelState.startPosition = worldPos;
+                child.visible = false; 
+                return;
+            }
+
             let isCollision = name.includes("collision") || name.includes("colision");
             if (!isCollision && child.parent) {
                 const pName = child.parent.name.toLowerCase();
@@ -244,35 +311,16 @@ export function loadLevel(scene, loadingManager, levelFile) {
                 }
                 return; 
             }
+            
+            if (name.includes("mascara_alada_a_ref")) { levelState.enemyData.refA = child; child.visible = false; return; } 
+            else if (name.includes("mascara_alada_b_ref")) { levelState.enemyData.refB = child; child.visible = false; return; } 
+            else if (name.includes("path_a")) { const pts = findGeometryForPath(child); if(pts.length > 0) levelState.enemyData.pathA = pts; child.visible = false; return; } 
+            else if (name.includes("path_b")) { const pts = findGeometryForPath(child); if(pts.length > 0) levelState.enemyData.pathB = pts; child.visible = false; return; }
 
-            // 2. REFERENCIAS Y PATHS
-            if (name.includes("mascara_alada_a_ref")) {
-                levelState.enemyData.refA = child; child.visible = false; return;
-            } else if (name.includes("mascara_alada_b_ref")) {
-                levelState.enemyData.refB = child; child.visible = false; return;
-            } else if (name.includes("path_a")) {
-                const pts = findGeometryForPath(child);
-                if(pts.length > 0) {
-                    levelState.enemyData.pathA = pts;
-                    console.log(`✅ Path A cargado: ${pts.length} puntos.`);
-                }
-                child.visible = false; return;
-            } else if (name.includes("path_b")) {
-                const pts = findGeometryForPath(child);
-                if(pts.length > 0) {
-                    levelState.enemyData.pathB = pts;
-                    console.log(`✅ Path B cargado: ${pts.length} puntos.`);
-                }
-                child.visible = false; return;
-            }
-
-            // 3. OBJETOS GRÁFICOS
             if (child.isMesh) {
                 if (name.includes("emisor_hierba")) { levelState.grassEmitterMeshes.push(child); child.visible = false; } 
                 else if (name.includes("hierba_b")) {
-                    if (!levelState.grassSource.geometry) {
-                        levelState.grassSource.geometry = child.geometry.clone(); levelState.grassSource.material = child.material; levelState.grassSource.scale.copy(child.scale);
-                    } child.visible = false;
+                    if (!levelState.grassSource.geometry) { levelState.grassSource.geometry = child.geometry.clone(); levelState.grassSource.material = child.material; levelState.grassSource.scale.copy(child.scale); } child.visible = false;
                 } else if (name.includes("puerta")) {
                     levelState.doorsCenter.add(child.position); doorsCount++; child.castShadow = true; child.receiveShadow = true;
                 } else { child.castShadow = true; child.receiveShadow = true; }
@@ -286,24 +334,28 @@ export function loadLevel(scene, loadingManager, levelFile) {
                     action.loop = THREE.LoopOnce; action.clampWhenFinished = true; action.stop();
                     levelState.doorActions.push(action);
                 }
-                const affectsA = clip.tracks.some(t => t.name.includes(levelState.enemyData.refA?.name));
-                if (affectsA) levelState.enemyData.animClipA = clip;
-                const affectsB = clip.tracks.some(t => t.name.includes(levelState.enemyData.refB?.name));
-                if (affectsB) levelState.enemyData.animClipB = clip;
+                const affectsA = clip.tracks.some(t => t.name.includes(levelState.enemyData.refA?.name)); if (affectsA) levelState.enemyData.animClipA = clip;
+                const affectsB = clip.tracks.some(t => t.name.includes(levelState.enemyData.refB?.name)); if (affectsB) levelState.enemyData.animClipB = clip;
             });
         }
 
         if(doorsCount > 0) levelState.doorsCenter.divideScalar(doorsCount);
 
-        for(let i=0; i<3; i++) {
-            const mesh = new THREE.Mesh(new THREE.SphereGeometry(DEFAULT_ORB_CONFIG.orb.radius, 16, 16), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x222222, roughness: 0.2, metalness: 0.5, transparent: true, blending: DEFAULT_ORB_CONFIG.orb.blend === 'Additive' ? THREE.AdditiveBlending : THREE.NormalBlending }));
-            const light = new THREE.PointLight(0xffffff, DEFAULT_ORB_CONFIG.light.intensity, 12, 1.9);
-            mesh.add(light); scene.add(mesh); levelState.orbs.push(new OrbLogic(i, mesh, light, scene)); mesh.position.set(0, -9999, 0); 
+        const isLevel1 = levelFile.includes("MN_SCENE_01");
+        if (isLevel1) {
+            for(let i=0; i<3; i++) {
+                const mesh = new THREE.Mesh(new THREE.SphereGeometry(DEFAULT_ORB_CONFIG.orb.radius, 16, 16), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x222222, roughness: 0.2, metalness: 0.5, transparent: true, blending: DEFAULT_ORB_CONFIG.orb.blend === 'Additive' ? THREE.AdditiveBlending : THREE.NormalBlending }));
+                const light = new THREE.PointLight(0xffffff, DEFAULT_ORB_CONFIG.light.intensity, 12, 1.9);
+                mesh.add(light); scene.add(mesh); levelState.orbs.push(new OrbLogic(i, mesh, light, scene)); mesh.position.set(0, -9999, 0); 
+            }
         }
 
         if (levelState.grassSource.geometry) generateInstancedGrass(scene);
+
+        if(onLoadComplete) onLoadComplete(); 
     });
 }
+
 export function unloadCurrentLevel(scene) {
     if (levelState.parametricMesh) { scene.remove(levelState.parametricMesh); levelState.parametricMesh.geometry.dispose(); levelState.parametricMesh = null; }
     levelState.orbs.forEach(orb => { if(orb.particles) orb.particles.dispose(); scene.remove(orb.mesh); orb.mesh.geometry.dispose(); orb.mesh.material.dispose(); if(orb.player) orb.player.dispose(); });
@@ -311,6 +363,7 @@ export function unloadCurrentLevel(scene) {
     levelState.collisionMeshes = []; levelState.grassEmitterMeshes = []; levelState.doorActions = []; levelState.platformMesh = null; levelState.sceneMixer = null; levelState.mapBoundingBox.makeEmpty();
     levelState.enemyData = { refA: null, pathA: [], animClipA: null, refB: null, pathB: [], animClipB: null };
 }
+
 function modifyMaterialForWind(material) {
     if(material.userData && material.userData.isWindy) return material;
     const newMat = material.clone();
@@ -324,6 +377,7 @@ function modifyMaterialForWind(material) {
             vec3 localCrossDir = normalize(vec3(instanceMatrix[0].z, instanceMatrix[1].z, instanceMatrix[2].z)); transformed += localCrossDir * bend * 0.2;`);
     }; newMat.customProgramCacheKey = () => 'windyGrassInverted'; newMat.userData.isWindy = true; return newMat;
 }
+
 export function generateInstancedGrass(scene) {
     if (levelState.parametricMesh) { scene.remove(levelState.parametricMesh); levelState.parametricMesh.dispose(); levelState.parametricMesh = null; }
     if (!levelState.grassSource.geometry || !levelState.grassSource.material) return;

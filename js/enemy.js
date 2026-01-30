@@ -1,26 +1,25 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { takeDamage } from './player.js';
+import { levelState } from './level.js';
 
 export class Enemy {
-    constructor(scene, config) {
+    constructor(scene, config, onHitPlayerCallback) {
         this.scene = scene;
         this.refObject = config.refObject;
         this.pathPoints = config.pathPoints || [];
         this.sceneMixer = config.mixer; 
         this.introClip = config.introClip;
+        this.onHitPlayerCallback = onHitPlayerCallback; 
 
         this.mesh = null;
         this.collisionTop = null; 
         this.hp = 3;
         
-        // ESTADOS: 'waiting', 'intro', 'moving_to_start', 'path_loop', 'repositioning', 'dead'
         this.state = 'waiting'; 
         
-        // VELOCIDAD: Misma para todo
         this.moveSpeed = 6.0; 
-        
-        this.targetNodeIndex = 17; // Nodo de inicio y reset
+        this.targetNodeIndex = 17; 
         this.loopStartT = 0; 
         
         this.currentRoll = 0; 
@@ -30,34 +29,30 @@ export class Enemy {
         
         this.lasers = [];
         this.shootTimer = 0;
-        this.shootInterval = 3.5;
+        this.shootInterval = 1.2;
 
         this.dummyRotator = new THREE.Object3D();
 
+        // Variables temporales para evitar Garbage Collection en el bucle
+        this._laserStart = new THREE.Vector3();
+        this._laserEnd = new THREE.Vector3();
+        this._line = new THREE.Line3();
+        this._closestPoint = new THREE.Vector3();
+
         if (this.pathPoints.length > 0) {
-            console.log("Enemigo iniciado con path de", this.pathPoints.length, "puntos");
             this.curve = new THREE.CatmullRomCurve3(this.pathPoints);
             this.calculateLoopStartT();
-        } else {
-            console.warn("Enemigo iniciado SIN PATH");
         }
-
         this.loadModel();
     }
 
     calculateLoopStartT() {
         if (this.pathPoints.length < 2) return;
-
-        // Intentamos usar el índice 17. 
-        // Si no hay suficientes puntos (ej: la curva tiene 10), usamos EL ÚLTIMO en vez del primero.
-        // Esto evita que vuelva al principio (escaleras).
         if (this.pathPoints.length > this.targetNodeIndex) {
              this.safeTargetIndex = this.targetNodeIndex;
         } else {
-             console.log("Aviso: Pocos puntos en curva. Usando el final como loop.");
              this.safeTargetIndex = this.pathPoints.length - 1;
         }
-
         this.loopStartT = this.safeTargetIndex / (this.pathPoints.length - 1);
     }
 
@@ -86,7 +81,6 @@ export class Enemy {
     startIntro() {
         if(this.state !== 'waiting') return;
         this.state = 'intro';
-        console.log("Enemigo: Start Intro");
 
         if (this.sceneMixer && this.introClip) {
             const action = this.sceneMixer.clipAction(this.introClip);
@@ -217,28 +211,57 @@ export class Enemy {
     shootLasers() {
         const offsets = [-0.6, 0.6];
         offsets.forEach(xOff => {
-            const geometry = new THREE.BoxGeometry(0.06, 0.06, 6.0); 
+            // LÁSERES 36.0 de largo
+            const geometry = new THREE.BoxGeometry(0.18, 0.18, 36.0); 
             const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
             const laser = new THREE.Mesh(geometry, material);
+            
             laser.position.copy(this.mesh.position);
             laser.position.y += 0.2; 
             laser.quaternion.copy(this.mesh.quaternion);
-            laser.translateX(xOff); laser.translateZ(2.5); 
+            
+            laser.translateX(xOff); 
+            laser.translateZ(18.0); 
+
             this.scene.add(laser);
+            
             const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(this.mesh.quaternion);
             this.lasers.push({ mesh: laser, dir: dir, life: 1.5 }); 
         });
     }
 
     updateLasers(dt, playerContainer) {
+        const hitRadius = levelState.laserHitRadius; 
+        // Longitud del láser 36.0, la mitad es 18.0
+        const halfLength = 18.0;
+
         for (let i = this.lasers.length - 1; i >= 0; i--) {
             const l = this.lasers[i];
             l.life -= dt;
             const speed = 30.0; 
             l.mesh.position.addScaledVector(l.dir, speed * dt);
+            
             if (playerContainer) {
-                const dist = l.mesh.position.distanceTo(playerContainer.position);
-                if (dist < 1.0) { takeDamage(); l.life = -1; }
+                // SOLUCIÓN: Calcular colisión contra la línea completa del láser, no solo el centro.
+                
+                // 1. Definir el inicio y fin del láser en el espacio
+                this._laserStart.copy(l.mesh.position).addScaledVector(l.dir, -halfLength);
+                this._laserEnd.copy(l.mesh.position).addScaledVector(l.dir, halfLength);
+                
+                // 2. Crear segmento de línea y buscar el punto más cercano al jugador
+                this._line.set(this._laserStart, this._laserEnd);
+                this._line.closestPointToPoint(playerContainer.position, true, this._closestPoint);
+                
+                // 3. Medir distancia desde ese punto cercano al jugador
+                const distToLine = this._closestPoint.distanceTo(playerContainer.position);
+
+                if (distToLine < hitRadius) { 
+                    takeDamage(); 
+                    if(this.onHitPlayerCallback) {
+                        this.onHitPlayerCallback();
+                    }
+                    l.life = -1; // Destruir láser al impactar
+                }
             }
             if (l.life <= 0) {
                 this.scene.remove(l.mesh);

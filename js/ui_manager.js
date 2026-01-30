@@ -3,7 +3,6 @@ export const inputState = {
     isDraggingJoystick: false
 };
 
-// Nueva función para gestionar botones in-game
 export function initQualityHUD(onQualitySelected) {
     const btns = {
         high: document.getElementById('btn-q-high'),
@@ -21,7 +20,6 @@ export function initQualityHUD(onQualitySelected) {
         onQualitySelected(selectedKey);
     };
 
-    // Usamos touchstart y mousedown para respuesta rápida
     const bind = (key) => {
         const fn = (e) => { 
             e.preventDefault(); e.stopPropagation(); 
@@ -37,13 +35,34 @@ export function initQualityHUD(onQualitySelected) {
 }
 
 export function initUI(callbacks) {
-    const { onJump, onShoot } = callbacks;
+    // MODIFICADO: Eliminado onLaserRadiusChange, añadido onAOToggle
+    const { onJump, onShoot, onLevelSelect, onAOToggle } = callbacks;
 
     window.addEventListener('error', (e) => {
         const el = document.getElementById('error-log');
         if(el) { el.style.display = 'block'; el.innerHTML += "Error: " + e.message + "<br>"; }
     });
 
+    // --- NUEVO: Toggle AO ---
+    const aoCheckbox = document.getElementById('ao-toggle');
+    if(aoCheckbox && onAOToggle) {
+        aoCheckbox.addEventListener('change', (e) => {
+            onAOToggle(e.target.checked);
+        });
+    }
+
+    // --- Botones de Fase ---
+    const btnLvl1 = document.getElementById('btn-lvl-1');
+    const btnLvl2 = document.getElementById('btn-lvl-2');
+
+    if(btnLvl1 && onLevelSelect) {
+        btnLvl1.addEventListener('click', (e) => { e.target.blur(); onLevelSelect(1); });
+    }
+    if(btnLvl2 && onLevelSelect) {
+        btnLvl2.addEventListener('click', (e) => { e.target.blur(); onLevelSelect(2); });
+    }
+
+    // --- Joystick Logic (Sin cambios) ---
     let joystickTouchId = null;
     const joystickContainer = document.getElementById('joystick-container');
     const joystickThumb = document.getElementById('joystick-thumb');
