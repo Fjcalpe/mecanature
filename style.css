@@ -31,13 +31,24 @@ body {
 
 .q-btn:hover { background: rgba(255, 255, 255, 0.1); color: white; }
 
-/* Clase para el botón activo */
 .q-btn.active {
     background: rgba(0, 229, 255, 0.2); 
     border-color: #00e5ff; 
     color: #00e5ff;
     box-shadow: 0 0 5px rgba(0, 229, 255, 0.3);
 }
+
+/* --- ESTILOS CHECKBOX AO --- */
+.ao-label {
+    display: flex; align-items: center; gap: 5px;
+    font-family: 'Ethnocentric', sans-serif; font-size: 8px;
+    color: rgba(255, 255, 255, 0.7);
+    margin-left: 10px; cursor: pointer;
+    background: transparent; border: 1px solid rgba(255, 255, 255, 0.3);
+    padding: 3px 6px; border-radius: 4px;
+}
+.ao-label:hover { background: rgba(255, 255, 255, 0.1); color: white; }
+.ao-label input { cursor: pointer; margin: 0; }
 
 /* --- HUD & MENSAJES --- */
 #fps-display {
@@ -49,23 +60,27 @@ body {
     pointer-events: none; z-index: 200;
 }
 
-/* ESTILO MENSAJES */
-#quest-message {
-    position: absolute; top: 20%; left: 50%; transform: translate(-50%, -50%);
+/* ESTILO UNIFICADO DE MENSAJES */
+.game-message {
+    position: absolute; 
+    left: 50%; transform: translate(-50%, -50%);
     font-family: 'Ethnocentric', Arial, sans-serif;
-    font-size: 28px; 
+    font-size: 24px; /* Tamaño estándar legible */
     color: #ffffff;
     letter-spacing: 2px;
-    background: transparent;
-    border: none;
-    padding: 0;
     text-shadow: 0px 0px 10px rgba(0, 255, 255, 0.5), 2px 2px 0px #000;
     text-align: center; 
-    display: none; 
     pointer-events: none; 
     z-index: 300;
+    width: 90%; /* Ancho máximo */
+    display: none; /* Ocultos por defecto */
     transition: opacity 0.3s;
 }
+
+/* Posiciones específicas */
+#quest-message { top: 20%; display: block; } /* Mensaje principal */
+#freq-hint { top: 30%; } /* Un poco más abajo */
+#jump-hint { bottom: 20%; } /* Parte inferior */
 
 #error-log {
     position: absolute; top: 40px; left: 0; background: red; color: white; 
@@ -124,3 +139,31 @@ body.cinematic-mode .ui-element { opacity: 0; pointer-events: none; }
     font-family: 'Ethnocentric', sans-serif;
     letter-spacing: 1px;
 }
+
+/* --- FADE OVERLAY --- */
+#fade-overlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background-color: black;
+    z-index: 1000;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 1.0s ease-in-out;
+}
+body.faded-out #fade-overlay {
+    opacity: 1;
+    pointer-events: all;
+}
+
+/* --- DEBUG UI --- */
+#debug-ui {
+    position: absolute; top: 120px; left: 20px;
+    background: rgba(0, 0, 0, 0.6);
+    padding: 10px; border-radius: 8px;
+    z-index: 200; display: flex; flex-direction: column; gap: 10px;
+    font-family: 'Ethnocentric', monospace; font-size: 10px; color: #00e5ff;
+    border: 1px solid rgba(0, 229, 255, 0.3);
+}
+.debug-row {
+    display: flex; gap: 10px; align-items: center;
+}
+#debug-ui input { width: 100px; cursor: pointer; }
