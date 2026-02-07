@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, minimum-scale=1.0">
-    <title>Juego 3D - N8AO Fixed</title>
+    <title>Juego 3D - N8AO Fixed & Shadows</title>
     <link rel="stylesheet" href="./style.css">
     <script src="https://unpkg.com/tone@14.7.77/build/Tone.js"></script>
 </head>
@@ -17,6 +17,11 @@
         <label class="ao-label">
             <input type="checkbox" id="ao-toggle"> AO (N8)
         </label>
+    </div>
+
+    <div id="fog-ui" class="ui-element">
+        <label>DENSIDAD NIEBLA: <span id="fog-val">0.022</span></label>
+        <input type="range" id="fog-slider" min="0" max="0.1" step="0.001" value="0.022">
     </div>
 
     <div id="debug-ui" class="ui-element">
@@ -54,6 +59,7 @@
             }
         }
     </script>
+    
     <script type="module" src="./js/main.js"></script>
 </body>
 </html>

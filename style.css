@@ -50,6 +50,38 @@ body {
 .ao-label:hover { background: rgba(255, 255, 255, 0.1); color: white; }
 .ao-label input { cursor: pointer; margin: 0; }
 
+/* --- NUEVO: UI NIEBLA --- */
+#fog-ui {
+    position: absolute; 
+    top: 60px; /* Debajo del HUD de calidad */
+    left: 50%; transform: translateX(-50%);
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    background: rgba(0, 0, 0, 0.4);
+    padding: 8px; border-radius: 8px;
+    z-index: 200;
+    backdrop-filter: blur(2px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+#fog-ui label {
+    font-family: 'Ethnocentric', sans-serif; 
+    font-size: 8px; color: #00e5ff;
+    letter-spacing: 1px;
+}
+
+#fog-ui input[type=range] {
+    -webkit-appearance: none; width: 150px; height: 4px; 
+    background: rgba(255,255,255,0.2); border-radius: 2px;
+    outline: none;
+}
+
+#fog-ui input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 12px; height: 12px; border-radius: 50%; 
+    background: #00e5ff; cursor: pointer;
+    box-shadow: 0 0 5px #00e5ff;
+}
+
 /* --- HUD & MENSAJES --- */
 #fps-display {
     position: absolute; top: 10px; right: 10px;
@@ -77,10 +109,9 @@ body {
     transition: opacity 0.3s;
 }
 
-/* Posiciones específicas */
-#quest-message { top: 20%; display: block; } /* Mensaje principal */
-#freq-hint { top: 30%; } /* Un poco más abajo */
-#jump-hint { bottom: 20%; } /* Parte inferior */
+#quest-message { top: 20%; display: block; } 
+#freq-hint { top: 30%; } 
+#jump-hint { bottom: 20%; } 
 
 #error-log {
     position: absolute; top: 40px; left: 0; background: red; color: white; 
