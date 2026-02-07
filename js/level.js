@@ -26,12 +26,9 @@ export const levelState = {
     grassSource: { geometry: null, material: null, scale: new THREE.Vector3(1,1,1) },
     grassMaterialUniforms: { time: { value: 0 } }, grassParams: { count: 2000 },
     enemyData: { refA: null, pathA: [], animClipA: null, refB: null, pathB: [], animClipB: null },
-    // FIJADO A 2.5
     laserHitRadius: 2.5,
     startPosition: null 
 };
-
-// Eliminada setLaserRadius porque ya no hay slider
 
 let playerSelect = null, playerAppear = null;
 function initGlobalSFX() {
@@ -64,28 +61,21 @@ class OrbLogic {
     spawnStacked(basePos, playerPos) {
         this.state = 'cinematic_stack'; 
         this.collected = false;
-        
         const config = ORB_PHASES[this.id];
         this.mesh.material.color.setHex(config.color); 
         this.light.color.setHex(config.color);
-        
         const toDoor = new THREE.Vector3().subVectors(basePos, playerPos).normalize();
         this.startCinematicPos.copy(playerPos).add(toDoor.multiplyScalar(2.0)); 
         this.startCinematicPos.y += 1.5; 
-        
         this.mesh.position.copy(this.startCinematicPos); 
         this.mesh.position.y += (this.id * 0.6); 
-        
         const up = new THREE.Vector3(0, 1, 0); 
         const right = new THREE.Vector3().crossVectors(toDoor, up).normalize();
-        
         this.cinematicTargetPos.copy(this.mesh.position); 
         this.cinematicTargetPos.y += 2.0; 
-        
         if (this.id === 0) this.cinematicTargetPos.addScaledVector(right, -3.0);
         else if (this.id === 1) this.cinematicTargetPos.y += 2.0; 
         else if (this.id === 2) this.cinematicTargetPos.addScaledVector(right, 3.0);
-
         if(this.particles) {
             this.particles.setPosition(this.mesh.position);
             this.particles.start();
@@ -101,11 +91,9 @@ class OrbLogic {
         const up = new THREE.Vector3(0, 1, 0); 
         const right = new THREE.Vector3().crossVectors(toCam, up).normalize();
         const trueUp = new THREE.Vector3().crossVectors(right, toCam).normalize();
-        
         if (this.id === 0) this.divergeVec.copy(right).multiplyScalar(-1);
         if (this.id === 1) this.divergeVec.copy(trueUp);
         if (this.id === 2) this.divergeVec.copy(right);
-        
         this.launchVelocity.copy(toCam).multiplyScalar(20.0);
     }
 
@@ -122,7 +110,6 @@ class OrbLogic {
             else this.particles.stop();
             this.particles.update(dt);
         }
-
         if (this.player.loaded && Tone.Transport.state === 'started') {
             const dist = this.mesh.position.distanceTo(playerPos);
             const maxRadius = 15;
@@ -131,9 +118,7 @@ class OrbLogic {
                 this.player.volume.rampTo(Tone.gainToDb(vol), 0.1);
             } else { this.player.volume.rampTo(-Infinity, 0.1); }
         }
-
         if(this.state === 'hidden' || this.state === 'editor_mode') return false;
-
         if(this.state === 'cinematic_stack') {
             if (cinematicTime > 1.0) {
                 const t = Math.min(1.0, (cinematicTime - 1.0) / 1.5); 
@@ -146,33 +131,25 @@ class OrbLogic {
             }
             return false; 
         }
-
         if (this.state === 'launching') {
             const distToCam = this.mesh.position.distanceTo(camPos);
             if (distToCam < 8.0) this.launchVelocity.addScaledVector(this.divergeVec, 80.0 * dt);
-            
             this.mesh.position.addScaledVector(this.launchVelocity, dt);
             if (this.mesh.position.y < 1.0) this.mesh.position.y = 1.0;
-            
             if (time - this.launchStartTime > 1.5) { 
                 this.state = 'flying'; 
                 this.pickRandomTarget(levelState.mapBoundingBox); 
             }
             return false; 
         }
-
         if(this.state === 'flying') {
             const baseDir = new THREE.Vector3().subVectors(this.target, this.mesh.position).normalize();
             baseDir.x += Math.sin(time * 2.0 + this.oscillationOffset) * 0.5; 
             baseDir.z += Math.cos(time * 2.0 + this.oscillationOffset) * 0.5; 
             baseDir.normalize();
-            
             this.mesh.position.addScaledVector(baseDir, 1.6 * dt);
-            
             if(this.mesh.position.distanceTo(this.target) < 2.0) this.pickRandomTarget(levelState.mapBoundingBox);
-            
             this.mesh.position.y = Math.max(1.6, Math.min(5.0, this.mesh.position.y));
-
             const pickupRadius = 2.0;
             if(playerPos.distanceTo(this.mesh.position) < pickupRadius) {
                 if (this.id === currentPhase) {
@@ -188,7 +165,6 @@ class OrbLogic {
 }
 
 export function resetCollectedOrbs() {
-    console.log("¡Impacto! Reiniciando orbes...");
     levelState.orbs.forEach(orb => {
         orb.collected = false;
         orb.state = 'flying';
@@ -230,7 +206,6 @@ function findGeometryForPath(obj) {
     };
     collect(obj);
     if (rawPoints.length === 0) return [];
-
     const MIN_DIST = 0.05; 
     let distFiltered = [rawPoints[0]];
     for (let i = 1; i < rawPoints.length; i++) {
@@ -240,11 +215,9 @@ function findGeometryForPath(obj) {
         }
     }
     if (distFiltered.length < 3) return distFiltered;
-
     let cleanPoints = [distFiltered[0]];
     cleanPoints.push(distFiltered[1]); 
     let currentDir = new THREE.Vector3().subVectors(distFiltered[1], distFiltered[0]).normalize();
-
     for (let i = 2; i < distFiltered.length; i++) {
         const cand = distFiltered[i];
         const last = cleanPoints[cleanPoints.length - 1];
@@ -260,7 +233,6 @@ function findGeometryForPath(obj) {
 export function loadLevel(scene, loadingManager, levelFile, onLoadComplete) {
     initGlobalSFX();
     const loader = new GLTFLoader(loadingManager);
-    
     if (!levelState.bgMesh) {
         const tLoader = new THREE.TextureLoader();
         const bgTex = tLoader.load('./assets/textures/bg.webp', (t) => t.colorSpace = THREE.SRGBColorSpace);
@@ -278,11 +250,25 @@ export function loadLevel(scene, loadingManager, levelFile, onLoadComplete) {
         let doorsCount = 0;
         levelState.mapBoundingBox.makeEmpty();
         levelState.startPosition = null; 
-        
         masterModule.updateMatrixWorld(true);
 
         masterModule.traverse((child) => {
             const name = child.name.toLowerCase();
+
+            // --- NUEVO: REPARACIÓN DE AO Y SOMBRAS ---
+            if (child.isMesh) {
+                // Forzamos visibilidad de AO si el modelo tiene un aoMap (segundo canal UV)
+                if (child.material && child.material.aoMap) {
+                    child.material.aoMapIntensity = 1.0; 
+                    child.material.needsUpdate = true;
+                }
+                
+                // Aseguramos que reciban sombras si no es un emisor especial
+                if (!name.includes("emisor")) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                }
+            }
 
             if (child.name === "Character_init") {
                 const worldPos = new THREE.Vector3();
@@ -322,8 +308,8 @@ export function loadLevel(scene, loadingManager, levelFile, onLoadComplete) {
                 else if (name.includes("hierba_b")) {
                     if (!levelState.grassSource.geometry) { levelState.grassSource.geometry = child.geometry.clone(); levelState.grassSource.material = child.material; levelState.grassSource.scale.copy(child.scale); } child.visible = false;
                 } else if (name.includes("puerta")) {
-                    levelState.doorsCenter.add(child.position); doorsCount++; child.castShadow = true; child.receiveShadow = true;
-                } else { child.castShadow = true; child.receiveShadow = true; }
+                    levelState.doorsCenter.add(child.position); doorsCount++; 
+                }
             }
         });
 
@@ -338,9 +324,7 @@ export function loadLevel(scene, loadingManager, levelFile, onLoadComplete) {
                 const affectsB = clip.tracks.some(t => t.name.includes(levelState.enemyData.refB?.name)); if (affectsB) levelState.enemyData.animClipB = clip;
             });
         }
-
-        if(doorsCount > 0) levelState.doorsCenter.divideScalar(doorsCount);
-
+        if (doorsCount > 0) levelState.doorsCenter.divideScalar(doorsCount);
         const isLevel1 = levelFile.includes("MN_SCENE_01");
         if (isLevel1) {
             for(let i=0; i<3; i++) {
@@ -349,9 +333,7 @@ export function loadLevel(scene, loadingManager, levelFile, onLoadComplete) {
                 mesh.add(light); scene.add(mesh); levelState.orbs.push(new OrbLogic(i, mesh, light, scene)); mesh.position.set(0, -9999, 0); 
             }
         }
-
         if (levelState.grassSource.geometry) generateInstancedGrass(scene);
-
         if(onLoadComplete) onLoadComplete(); 
     });
 }
@@ -411,5 +393,4 @@ export function generateInstancedGrass(scene) {
     levelState.grassEmitterMeshes.forEach(m => m.visible = false);
     for(let i = placed; i < count; i++) { dummy.position.set(0, -99999, 0); dummy.updateMatrix(); levelState.parametricMesh.setMatrixAt(i, dummy.matrix); }
     levelState.parametricMesh.instanceMatrix.needsUpdate = true; scene.add(levelState.parametricMesh);
-    console.log(`Hierba generada: ${placed} instancias.`);
 }

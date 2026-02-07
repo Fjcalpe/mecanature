@@ -35,19 +35,31 @@ export function initQualityHUD(onQualitySelected) {
 }
 
 export function initUI(callbacks) {
-    // MODIFICADO: Eliminado onLaserRadiusChange, añadido onAOToggle
-    const { onJump, onShoot, onLevelSelect, onAOToggle } = callbacks;
+    // MODIFICADO: Añadido onFogChange
+    const { onJump, onShoot, onLevelSelect, onAOToggle, onFogChange } = callbacks;
 
     window.addEventListener('error', (e) => {
         const el = document.getElementById('error-log');
         if(el) { el.style.display = 'block'; el.innerHTML += "Error: " + e.message + "<br>"; }
     });
 
-    // --- NUEVO: Toggle AO ---
+    // --- Toggle AO ---
     const aoCheckbox = document.getElementById('ao-toggle');
     if(aoCheckbox && onAOToggle) {
         aoCheckbox.addEventListener('change', (e) => {
             onAOToggle(e.target.checked);
+        });
+    }
+
+    // --- NUEVO: Slider de Niebla ---
+    const fogSlider = document.getElementById('fog-slider');
+    const fogLabel = document.getElementById('fog-val');
+    
+    if(fogSlider && onFogChange) {
+        fogSlider.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            if(fogLabel) fogLabel.innerText = val.toFixed(3);
+            onFogChange(val);
         });
     }
 
@@ -62,7 +74,7 @@ export function initUI(callbacks) {
         btnLvl2.addEventListener('click', (e) => { e.target.blur(); onLevelSelect(2); });
     }
 
-    // --- Joystick Logic (Sin cambios) ---
+    // --- Joystick Logic ---
     let joystickTouchId = null;
     const joystickContainer = document.getElementById('joystick-container');
     const joystickThumb = document.getElementById('joystick-thumb');

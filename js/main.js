@@ -4,6 +4,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
+// NOTA: Como main.js está en la carpeta 'js', estas rutas relativas buscan en la misma carpeta 'js'.
 import { loadPlayer, updatePlayer, playerState, jump, shoot, unlockPlayerAudio } from './player.js'; 
 import { updateSmartCamera, camSettings, startCameraCinematic, startCameraReturn } from './camera.js';
 import { loadLevel, levelState, spawnOrbsAtDoor, launchOrbs, updateOrbsLogic, generateInstancedGrass, updateAllOrbParticles, unlockLevelAudio, playOrbAppearSound, startOrbMelodies, resetCollectedOrbs, unloadCurrentLevel } from './level.js'; 
@@ -15,6 +16,7 @@ const freqHint = document.getElementById('freq-hint');
 const jumpHint = document.getElementById('jump-hint');
 
 const scene = new THREE.Scene();
+// Valor inicial de la niebla
 scene.fog = new THREE.FogExp2(0xeecfa1, 0.022);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000);
@@ -34,8 +36,6 @@ const renderPass = new RenderPass(scene, camera);
 composer.addPass(renderPass);
 
 const gtaoPass = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight);
-// CORRECCIÓN: Eliminada la línea problemática 'gtaoPass.output.encoding'
-// El OutputPass al final de la cadena se encarga de la corrección de color.
 gtaoPass.blendIntensity = 1.0; 
 gtaoPass.radius = 5.0; 
 gtaoPass.enabled = false; 
@@ -55,11 +55,27 @@ sunOffset.set(sunDistance * Math.sin(phi) * Math.sin(theta), sunDistance * Math.
 
 const sunLight = new THREE.DirectionalLight(0xffeeb1, 6.0);
 sunLight.castShadow = true; 
-sunLight.shadow.mapSize.set(2048, 2048); 
-sunLight.shadow.camera.left = -20; sunLight.shadow.camera.right = 20; 
-sunLight.shadow.camera.top = 20; sunLight.shadow.camera.bottom = -20;
-sunLight.shadow.camera.near = 0.5; sunLight.shadow.camera.far = 150;
-sunLight.shadow.bias = -0.0005; sunLight.shadow.normalBias = 0.05; 
+
+// --- CORRECCIÓN SOMBRAS PARA ESCENARIOS GRANDES ---
+// 1. Mapa de sombras más grande (4096) para alta resolución
+sunLight.shadow.mapSize.set(4096, 4096); 
+
+// 2. Frustum (caja de proyección) mucho más grande.
+// Antes era 20, ahora 150 para cubrir todo el mapa Fase 2.
+const d = 150; 
+sunLight.shadow.camera.left = -d; 
+sunLight.shadow.camera.right = d; 
+sunLight.shadow.camera.top = d; 
+sunLight.shadow.camera.bottom = -d;
+
+// Ajuste de profundidad
+sunLight.shadow.camera.near = 0.5; 
+sunLight.shadow.camera.far = 300; 
+
+// Bias para evitar artefactos en superficies grandes
+sunLight.shadow.bias = -0.0001; 
+sunLight.shadow.normalBias = 0.05; 
+
 scene.add(sunLight); scene.add(sunLight.target); 
 scene.add(new THREE.HemisphereLight(0xffd580, 0x222233, 0.5));
 
@@ -71,13 +87,24 @@ new THREE.TextureLoader().load('./assets/textures/bg_reflejosIBL.webp', (t) => {
 
 function applyGraphicsSettings(quality) {
     if (quality === 'high') {
-        levelState.grassParams.count = 2000; sunLight.shadow.mapSize.set(2048, 2048); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+        levelState.grassParams.count = 2000; 
+        sunLight.shadow.mapSize.set(4096, 4096); 
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     } else if (quality === 'medium') {
-        levelState.grassParams.count = 1000; sunLight.shadow.mapSize.set(1024, 1024); renderer.setPixelRatio(1.0);
+        levelState.grassParams.count = 1000; 
+        sunLight.shadow.mapSize.set(2048, 2048); 
+        renderer.setPixelRatio(1.0);
     } else if (quality === 'low') {
-        levelState.grassParams.count = 500; sunLight.shadow.mapSize.set(512, 512); renderer.setPixelRatio(0.8);
+        levelState.grassParams.count = 500; 
+        sunLight.shadow.mapSize.set(1024, 1024); 
+        renderer.setPixelRatio(0.8);
     }
-    if(sunLight.shadow.map) { sunLight.shadow.map.dispose(); sunLight.shadow.map = null; }
+    
+    // IMPORTANTE: Resetear el mapa de sombras si cambia el tamaño
+    if(sunLight.shadow.map) { 
+        sunLight.shadow.map.dispose(); 
+        sunLight.shadow.map = null; 
+    }
     generateInstancedGrass(scene);
 }
 
@@ -148,6 +175,10 @@ initUI({
         useAO = isActive;
         gtaoPass.enabled = isActive;
         console.log("Ambient Occlusion:", isActive ? "ON" : "OFF");
+    },
+    // --- NUEVO: Conexión Niebla ---
+    onFogChange: (value) => {
+        scene.fog.density = value;
     }
 });
 
